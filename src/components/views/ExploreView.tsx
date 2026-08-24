@@ -12,7 +12,7 @@ import {
   PlusCircle, 
   X, 
   Search, 
-  Shuffle 
+  Users 
 } from "lucide-react";
 
 interface ExploreViewProps {
@@ -20,6 +20,7 @@ interface ExploreViewProps {
   onShare: (post: Post) => void;
   onReport: (targetId: string, author: string) => void;
   onTabChange: (tab: TabType) => void;
+  onNavigateToProfile?: (username: string) => void;
 }
 
 export const ExploreView: React.FC<ExploreViewProps> = ({
@@ -27,9 +28,10 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
   onShare,
   onReport,
   onTabChange,
+  onNavigateToProfile,
 }) => {
-  const { currentUser, openAuthModal } = useAuth();
-  const [activeSort, setActiveSort] = useState<"trending" | "forYou" | "latest" | "mostRoasted">("trending");
+  const { currentUser, openAuthModal, isFriend } = useAuth();
+  const [activeSort, setActiveSort] = useState<"trending" | "forYou" | "friends" | "latest" | "mostRoasted">("trending");
   const [selectedCategory, setSelectedCategory] = useState<CategoryType | "All">("All");
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -63,6 +65,11 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
       result = result.filter((p) => p.hashtags?.some((t) => t.toLowerCase() === activeTag.toLowerCase()));
     }
 
+    // Filter by Friends
+    if (activeSort === "friends" && currentUser) {
+      result = result.filter((p) => isFriend(p.authorId) || p.authorId === currentUser.id);
+    }
+
     // Filter by Search Query
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -88,7 +95,6 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
     } else if (activeSort === "mostRoasted") {
       result.sort((a, b) => (b.roasts?.length || 0) - (a.roasts?.length || 0));
     } else if (activeSort === "forYou") {
-      // Prioritize followed users or high engagement
       result.sort((a, b) => {
         const isFollowedA = currentUser?.following?.includes(a.authorId) ? 100 : 0;
         const isFollowedB = currentUser?.following?.includes(b.authorId) ? 100 : 0;
@@ -97,7 +103,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
     }
 
     return result;
-  }, [allPosts, selectedCategory, activeTag, searchQuery, activeSort, currentUser]);
+  }, [allPosts, selectedCategory, activeTag, searchQuery, activeSort, currentUser, isFriend]);
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-6 flex flex-col gap-6 pb-24">
@@ -151,7 +157,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
         )}
       </div>
 
-      {/* Sort Tabs (For You | Trending | Latest | Most Roasted) */}
+      {/* Sort Tabs (For You | Trending | Friends | Latest | Most Roasted) */}
       <div className="flex items-center justify-between gap-2 overflow-x-auto pb-1">
         <div className="flex items-center gap-1 bg-[#12121a] p-1 rounded-xl border border-zinc-800/80 shrink-0">
           <button
@@ -179,6 +185,21 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
             <Sparkles className="w-3.5 h-3.5" />
             <span>For You</span>
           </button>
+
+          {currentUser && (
+            <button
+              id="sort-friends-btn"
+              onClick={() => setActiveSort("friends")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                activeSort === "friends"
+                  ? "bg-red-600 text-white shadow-sm"
+                  : "text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              <Users className="w-3.5 h-3.5" />
+              <span>Friends Only</span>
+            </button>
+          )}
 
           <button
             id="sort-latest-btn"
@@ -247,13 +268,16 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
             <Flame className="w-10 h-10 text-zinc-600" />
             <h3 className="text-base font-bold text-white">No stories match your filter</h3>
             <p className="text-xs text-zinc-400 max-w-xs">
-              Try resetting your category or search query, or be the first to post in this category!
+              {activeSort === "friends" 
+                ? "Your friends haven't posted any stories yet. Connect with more roasters in the Friends tab!"
+                : "Try resetting your category or search query, or be the first to post in this category!"}
             </p>
             <button
               onClick={() => {
                 setSelectedCategory("All");
                 setActiveTag(null);
                 setSearchQuery("");
+                setActiveSort("trending");
               }}
               className="mt-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-xs font-bold text-white rounded-xl transition-colors"
             >

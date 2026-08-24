@@ -3,7 +3,7 @@ import { Post, User, TabType } from "../../types";
 import { storage } from "../../services/storageService";
 import { PostCard } from "../feed/PostCard";
 import { useAuth } from "../../context/AuthContext";
-import { Search, User as UserIcon, Tag, Flame, Sparkles, ArrowRight } from "lucide-react";
+import { Search, User as UserIcon, Tag, Flame, Sparkles, ArrowRight, UserPlus, UserCheck, ShieldCheck } from "lucide-react";
 
 interface SearchViewProps {
   onTabChange: (tab: TabType) => void;
@@ -18,9 +18,9 @@ export const SearchView: React.FC<SearchViewProps> = ({
   onReport,
   onSelectUser,
 }) => {
-  const { allUsers, toggleFollow, isFollowing, currentUser } = useAuth();
+  const { allUsers, toggleFollow, isFollowing, currentUser, sendFriendRequest, isFriend } = useAuth();
   const [query, setQuery] = useState("");
-  const [searchTab, setSearchTab] = useState<"all" | "stories" | "people" | "tags">("all");
+  const [searchTab, setSearchTab] = useState<"all" | "stories" | "people">("all");
 
   const allPosts = storage.getPosts();
 
@@ -84,7 +84,7 @@ export const SearchView: React.FC<SearchViewProps> = ({
         </div>
       </div>
 
-      {/* Tabs (All | Stories | People | Tags) */}
+      {/* Tabs (All | Stories | People) */}
       <div className="flex items-center gap-2 border-b border-zinc-800 pb-2">
         {[
           { id: "all", label: "All Results" },
@@ -114,37 +114,62 @@ export const SearchView: React.FC<SearchViewProps> = ({
               Roasters ({matchingUsers.length})
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {matchingUsers.map((u) => (
-                <div
-                  key={u.id}
-                  className="p-3.5 bg-[#12121b] border border-zinc-800 rounded-2xl flex items-center justify-between hover:border-zinc-700 transition-colors"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <img
-                      src={u.avatarUrl}
-                      alt={u.username}
-                      className="w-10 h-10 rounded-xl object-cover border border-zinc-700 shrink-0"
-                    />
-                    <div className="truncate">
-                      <p className="text-xs font-bold text-white truncate">@{u.username}</p>
-                      <p className="text-[11px] text-red-400">{u.roastPoints} pts · {u.winsCount} wins</p>
-                    </div>
-                  </div>
+              {matchingUsers.map((u) => {
+                const isFriendUser = currentUser ? isFriend(u.id) : false;
+                const isFollowingUser = currentUser ? isFollowing(u.id) : false;
 
-                  {currentUser && currentUser.id !== u.id && (
-                    <button
-                      onClick={() => toggleFollow(u.id)}
-                      className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors ${
-                        isFollowing(u.id)
-                          ? "bg-zinc-800 text-zinc-300"
-                          : "bg-red-600/20 text-red-400 border border-red-500/30 hover:bg-red-600/30"
-                      }`}
+                return (
+                  <div
+                    key={u.id}
+                    className="p-3.5 bg-[#12121b] border border-zinc-800 rounded-2xl flex items-center justify-between hover:border-zinc-700 transition-colors"
+                  >
+                    <div 
+                      onClick={() => onSelectUser?.(u.id)}
+                      className="flex items-center gap-3 min-w-0 cursor-pointer group"
                     >
-                      {isFollowing(u.id) ? "Following" : "Follow"}
-                    </button>
-                  )}
-                </div>
-              ))}
+                      <img
+                        src={u.avatarUrl}
+                        alt={u.username}
+                        className="w-10 h-10 rounded-xl object-cover border border-zinc-700 shrink-0 group-hover:border-red-500 transition-colors"
+                      />
+                      <div className="truncate">
+                        <div className="flex items-center gap-1">
+                          <p className="text-xs font-bold text-white group-hover:text-red-400 transition-colors truncate">
+                            {u.displayName}
+                          </p>
+                          {u.isVerified && <ShieldCheck className="w-3 h-3 text-red-500 shrink-0" />}
+                        </div>
+                        <p className="text-[11px] text-zinc-400 truncate">@{u.username}</p>
+                        <p className="text-[10px] text-amber-400 font-bold">{u.roastPoints} pts</p>
+                      </div>
+                    </div>
+
+                    {currentUser && currentUser.id !== u.id && (
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {!isFriendUser && (
+                          <button
+                            onClick={() => sendFriendRequest(u.id)}
+                            className="p-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg transition-colors"
+                            title="Add Friend"
+                          >
+                            <UserPlus className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => toggleFollow(u.id)}
+                          className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-colors ${
+                            isFollowingUser
+                              ? "bg-zinc-800 text-zinc-300"
+                              : "bg-red-600/20 text-red-400 border border-red-500/30 hover:bg-red-600/30"
+                          }`}
+                        >
+                          {isFollowingUser ? "Following" : "Follow"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}

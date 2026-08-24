@@ -9,20 +9,22 @@ import {
   Award, 
   Bookmark, 
   Edit3, 
-  MessageSquare, 
   Share2, 
   UserCheck, 
   UserPlus, 
   ShieldCheck, 
   Check, 
   X, 
-  Plus, 
   Heart,
-  Sparkles
+  Users,
+  Settings,
+  ShieldAlert,
+  UserX,
+  Lock
 } from "lucide-react";
 
 interface ProfileViewProps {
-  userId?: string; // Optional: If specified, view that user's profile; otherwise view currentUser
+  userId?: string;
   onTabChange: (tab: TabType) => void;
   onShare: (post: Post) => void;
   onReport: (targetId: string, author: string) => void;
@@ -36,21 +38,37 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   onReport,
   onOpenCreate,
 }) => {
-  const { currentUser, updateProfile, toggleFollow, isFollowing, allUsers } = useAuth();
-  const { success } = useToast();
+  const { 
+    currentUser, 
+    updateProfile, 
+    toggleFollow, 
+    isFollowing, 
+    allUsers, 
+    openSettingsModal,
+    openConnectionsModal,
+    sendFriendRequest,
+    isFriend,
+    unfriend,
+    blockUser,
+    isBlocked,
+    getFriends,
+    getFriendRequests
+  } = useAuth();
+  
+  const { success, roast } = useToast();
 
-  const [activeTab, setActiveTab] = useState<"posts" | "roasts" | "saved">("posts");
+  const [activeTab, setActiveTab] = useState<"posts" | "roasts" | "friends" | "saved">("posts");
   const [isEditing, setIsEditing] = useState(false);
 
   // Target user calculation
   const targetUser: User | null = userId
-    ? allUsers.find((u) => u.id === userId) || currentUser
+    ? allUsers.find((u) => u.id === userId || u.username.toLowerCase() === userId.toLowerCase()) || currentUser
     : currentUser;
 
   // Edit Profile Form State
   const [editDisplayName, setEditDisplayName] = useState(targetUser?.displayName || "");
   const [editBio, setEditBio] = useState(targetUser?.bio || "");
-  const [editStatus, setEditStatus] = useState(targetUser?.relationshipStatus || "Happily Single & Unbothered");
+  const [editStatus, setEditStatus] = useState(targetUser?.relationshipStatus || "Single & Unbothered");
   const [editAvatar, setEditAvatar] = useState(targetUser?.avatarUrl || "");
 
   if (!targetUser) {
@@ -61,7 +79,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           onClick={() => onTabChange("home")}
           className="px-4 py-2 bg-red-600 text-white text-xs font-bold rounded-xl"
         >
-          Go to Home
+          Go to Home Feed
         </button>
       </div>
     );
@@ -69,8 +87,15 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
   const isOwnProfile = currentUser?.id === targetUser.id;
   const userPosts = storage.getPostsByAuthor(targetUser.id);
-  const userSavedPosts = storage.getSavedPosts();
+  const userSavedPosts = storage.getSavedPosts(targetUser.id);
   const allPosts = storage.getPosts();
+  const targetFriends = getFriends(targetUser.id);
+
+  const { sent: pendingSent } = currentUser ? getFriendRequests() : { sent: [] };
+  const hasSentFriendReq = pendingSent.some((r) => r.receiverId === targetUser.id);
+  const userIsFriend = currentUser ? isFriend(targetUser.id) : false;
+  const userIsFollowing = currentUser ? isFollowing(targetUser.id) : false;
+  const userIsBlocked = currentUser ? isBlocked(targetUser.id) : false;
 
   // Find all roasts posted by this user across all posts
   const userRoasts = allPosts.flatMap((post) =>
@@ -88,9 +113,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200&auto=format&fit=crop&q=80",
   ];
 
-  const handleSaveProfile = (e: React.FormEvent) => {
+  const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    updateProfile({
+    await updateProfile({
       displayName: editDisplayName,
       bio: editBio,
       relationshipStatus: editStatus,
@@ -100,8 +125,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   };
 
   const handleShareProfile = () => {
-    navigator.clipboard.writeText(`${window.location.origin}/#user-${targetUser.username}`);
-    success("Profile Link Copied!", "Share your roast stats with friends.");
+    navigator.clipboard.writeText(`${window.location.origin}/#profile-${targetUser.username}`);
+    success("Profile Link Copied!", `Share @${targetUser.username}'s roast card with friends.`);
   };
 
   return (
@@ -129,6 +154,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 <h1 className="text-xl sm:text-2xl font-black text-white font-display">
                   {targetUser.displayName}
                 </h1>
+                {targetUser.isVerified && <ShieldCheck className="w-4 h-4 text-red-500" />}
               </div>
 
               <p className="text-xs font-bold text-red-400">@{targetUser.username}</p>
@@ -143,45 +169,85 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           </div>
 
           {/* Action Buttons */}
-          <div className="flex items-center gap-2 self-stretch sm:self-auto">
+          <div className="flex items-center gap-2 self-stretch sm:self-auto flex-wrap">
             {isOwnProfile ? (
-              <button
-                id="profile-edit-btn"
-                onClick={() => {
-                  setEditDisplayName(targetUser.displayName);
-                  setEditBio(targetUser.bio || "");
-                  setEditStatus(targetUser.relationshipStatus || "");
-                  setEditAvatar(targetUser.avatarUrl);
-                  setIsEditing(true);
-                }}
-                className="flex-1 sm:flex-initial px-4 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-colors"
-              >
-                <Edit3 className="w-3.5 h-3.5" />
-                <span>Edit Profile</span>
-              </button>
+              <>
+                <button
+                  id="profile-edit-btn"
+                  onClick={() => {
+                    setEditDisplayName(targetUser.displayName);
+                    setEditBio(targetUser.bio || "");
+                    setEditStatus(targetUser.relationshipStatus || "");
+                    setEditAvatar(targetUser.avatarUrl);
+                    setIsEditing(true);
+                  }}
+                  className="flex-1 sm:flex-initial px-4 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-colors"
+                >
+                  <Edit3 className="w-3.5 h-3.5" />
+                  <span>Edit Profile</span>
+                </button>
+
+                <button
+                  id="profile-settings-btn"
+                  onClick={openSettingsModal}
+                  className="p-2 bg-[#181824] hover:bg-zinc-800 border border-zinc-800 rounded-xl text-zinc-400 hover:text-white transition-colors"
+                  title="Privacy & Account Settings"
+                >
+                  <Settings className="w-4 h-4" />
+                </button>
+              </>
             ) : (
               currentUser && (
-                <button
-                  id={`profile-follow-btn-${targetUser.id}`}
-                  onClick={() => toggleFollow(targetUser.id)}
-                  className={`flex-1 sm:flex-initial px-5 py-2 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-colors ${
-                    isFollowing(targetUser.id)
-                      ? "bg-zinc-800 text-zinc-200 hover:bg-zinc-700"
-                      : "bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-950/50"
-                  }`}
-                >
-                  {isFollowing(targetUser.id) ? (
-                    <>
-                      <UserCheck className="w-4 h-4" />
-                      <span>Following</span>
-                    </>
+                <>
+                  {/* Friend Request Button */}
+                  {userIsFriend ? (
+                    <button
+                      id={`profile-unfriend-btn-${targetUser.id}`}
+                      onClick={() => unfriend(targetUser.id)}
+                      className="px-3.5 py-2 bg-emerald-950/40 border border-emerald-500/30 hover:border-rose-500/40 text-emerald-400 hover:text-rose-400 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-colors"
+                      title="Click to Unfriend"
+                    >
+                      <UserCheck className="w-3.5 h-3.5" />
+                      <span>Friends ✓</span>
+                    </button>
+                  ) : hasSentFriendReq ? (
+                    <span className="px-3.5 py-2 bg-amber-950/40 border border-amber-500/30 text-amber-300 text-xs font-bold rounded-xl flex items-center gap-1.5">
+                      <span>Request Sent ⏳</span>
+                    </span>
                   ) : (
-                    <>
-                      <UserPlus className="w-4 h-4" />
-                      <span>Follow</span>
-                    </>
+                    <button
+                      id={`profile-add-friend-btn-${targetUser.id}`}
+                      onClick={() => sendFriendRequest(targetUser.id)}
+                      className="px-3.5 py-2 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white text-xs font-bold rounded-xl shadow-lg transition-all flex items-center gap-1.5"
+                    >
+                      <UserPlus className="w-3.5 h-3.5" />
+                      <span>Add Friend</span>
+                    </button>
                   )}
-                </button>
+
+                  {/* Follow Button */}
+                  <button
+                    id={`profile-follow-btn-${targetUser.id}`}
+                    onClick={() => toggleFollow(targetUser.id)}
+                    className={`px-3.5 py-2 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-colors ${
+                      userIsFollowing
+                        ? "bg-zinc-800 text-zinc-200 hover:bg-zinc-700 border border-zinc-700"
+                        : "bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700"
+                    }`}
+                  >
+                    <span>{userIsFollowing ? "Following" : "Follow"}</span>
+                  </button>
+
+                  {/* Block / Report User */}
+                  <button
+                    id={`profile-block-btn-${targetUser.id}`}
+                    onClick={() => blockUser(targetUser.id)}
+                    className="p-2 bg-[#181824] hover:bg-rose-950/40 border border-zinc-800 text-zinc-500 hover:text-rose-400 rounded-xl transition-colors"
+                    title="Block this user"
+                  >
+                    <UserX className="w-4 h-4" />
+                  </button>
+                </>
               )
             )}
 
@@ -204,7 +270,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         )}
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-6 mt-6 border-t border-zinc-800/80">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 pt-6 mt-6 border-t border-zinc-800/80">
           <div className="p-3 bg-[#161622] rounded-xl border border-zinc-800/60 text-center">
             <span className="text-xl font-black text-red-400 font-display">
               {targetUser.roastPoints.toLocaleString()}
@@ -216,17 +282,30 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             <span className="text-xl font-black text-white font-display">
               {userPosts.length}
             </span>
-            <p className="text-[10px] text-zinc-400 uppercase font-bold mt-0.5">Stories Posted</p>
+            <p className="text-[10px] text-zinc-400 uppercase font-bold mt-0.5">Stories</p>
           </div>
 
           <div className="p-3 bg-[#161622] rounded-xl border border-zinc-800/60 text-center">
             <span className="text-xl font-black text-amber-400 font-display">
               {userRoasts.length}
             </span>
-            <p className="text-[10px] text-zinc-400 uppercase font-bold mt-0.5">Roasts Dropped</p>
+            <p className="text-[10px] text-zinc-400 uppercase font-bold mt-0.5">Roasts</p>
           </div>
 
-          <div className="p-3 bg-[#161622] rounded-xl border border-zinc-800/60 text-center">
+          <div 
+            onClick={() => isOwnProfile && openConnectionsModal("friends")}
+            className={`p-3 bg-[#161622] rounded-xl border border-zinc-800/60 text-center ${isOwnProfile ? "cursor-pointer hover:border-red-500/40" : ""}`}
+          >
+            <span className="text-xl font-black text-zinc-200 font-display">
+              {targetFriends.length}
+            </span>
+            <p className="text-[10px] text-zinc-400 uppercase font-bold mt-0.5">Friends</p>
+          </div>
+
+          <div 
+            onClick={() => isOwnProfile && openConnectionsModal("following")}
+            className={`p-3 bg-[#161622] rounded-xl border border-zinc-800/60 text-center ${isOwnProfile ? "cursor-pointer hover:border-red-500/40" : ""}`}
+          >
             <span className="text-xl font-black text-zinc-200 font-display">
               {targetUser.followersCount || 0}
             </span>
@@ -239,7 +318,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       <div className="p-5 bg-[#111118] border border-zinc-800 rounded-2xl flex flex-col gap-3">
         <div className="flex items-center gap-2 text-xs font-bold text-amber-400 uppercase tracking-wider">
           <Award className="w-4 h-4" />
-          <span>Earned Badges & Medals</span>
+          <span>Earned Badges & Social Accolades</span>
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
@@ -260,13 +339,13 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         </div>
       </div>
 
-      {/* 3. PROFILE TABS (Stories | Roasts | Saved) */}
+      {/* 3. PROFILE TABS (Stories | Roasts | Friends | Saved) */}
       <div className="flex flex-col gap-4">
-        <div className="flex items-center gap-2 border-b border-zinc-800 pb-2">
+        <div className="flex items-center gap-2 border-b border-zinc-800 pb-2 overflow-x-auto">
           <button
             id="profile-tab-posts"
             onClick={() => setActiveTab("posts")}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
               activeTab === "posts"
                 ? "bg-red-600 text-white shadow-md"
                 : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800"
@@ -278,7 +357,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           <button
             id="profile-tab-roasts"
             onClick={() => setActiveTab("roasts")}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
               activeTab === "roasts"
                 ? "bg-red-600 text-white shadow-md"
                 : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800"
@@ -287,18 +366,30 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             Roasts Dropped ({userRoasts.length})
           </button>
 
+          <button
+            id="profile-tab-friends"
+            onClick={() => setActiveTab("friends")}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
+              activeTab === "friends"
+                ? "bg-red-600 text-white shadow-md"
+                : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800"
+            }`}
+          >
+            Friends ({targetFriends.length})
+          </button>
+
           {isOwnProfile && (
             <button
               id="profile-tab-saved"
               onClick={() => setActiveTab("saved")}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 ${
                 activeTab === "saved"
                   ? "bg-red-600 text-white shadow-md"
                   : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800"
               }`}
             >
               <Bookmark className="w-3.5 h-3.5" />
-              <span>Saved Stories ({userSavedPosts.length})</span>
+              <span>Saved ({userSavedPosts.length})</span>
             </button>
           )}
         </div>
@@ -357,6 +448,42 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             ) : (
               <div className="py-12 text-center bg-[#111118] border border-zinc-800 rounded-2xl text-xs text-zinc-400">
                 No roasts submitted yet. Check the Explore feed and drop some heat!
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Tab Content: Friends */}
+        {activeTab === "friends" && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {targetFriends.length > 0 ? (
+              targetFriends.map((friend) => (
+                <div
+                  key={friend.id}
+                  className="flex items-center justify-between p-3.5 bg-[#181824] border border-zinc-800 rounded-2xl"
+                >
+                  <div className="flex items-center gap-3">
+                    <img
+                      src={friend.avatarUrl}
+                      alt={friend.username}
+                      className="w-10 h-10 rounded-xl object-cover border border-zinc-700"
+                    />
+                    <div>
+                      <h4 className="text-xs font-bold text-white">
+                        {friend.displayName}
+                      </h4>
+                      <p className="text-[11px] text-zinc-400">@{friend.username}</p>
+                    </div>
+                  </div>
+
+                  <span className="text-[10px] text-amber-400 font-bold bg-amber-950/40 px-2 py-1 rounded-md border border-amber-500/20">
+                    {friend.roastPoints} pts
+                  </span>
+                </div>
+              ))
+            ) : (
+              <div className="col-span-full py-12 text-center bg-[#111118] border border-zinc-800 rounded-2xl text-xs text-zinc-400">
+                No friends connected yet.
               </div>
             )}
           </div>

@@ -5,6 +5,8 @@ import { Header } from "./components/common/Header";
 import { Sidebar } from "./components/common/Sidebar";
 import { MobileNav } from "./components/common/MobileNav";
 import { AuthModal } from "./components/common/AuthModal";
+import { SettingsModal } from "./components/common/SettingsModal";
+import { ConnectionsModal } from "./components/common/ConnectionsModal";
 import { ReportModal } from "./components/common/ReportModal";
 import { GuidelinesModal } from "./components/common/GuidelinesModal";
 import { ShareModal } from "./components/common/ShareModal";
@@ -19,7 +21,7 @@ import { TabType, Post } from "./types";
 import { storage } from "./services/storageService";
 
 function MainApp() {
-  const { currentUser, openAuthModal } = useAuth();
+  const { currentUser, openAuthModal, allUsers } = useAuth();
   const [currentTab, setCurrentTab] = useState<TabType>("home");
   const [viewingUserId, setViewingUserId] = useState<string | undefined>(undefined);
 
@@ -64,6 +66,17 @@ function MainApp() {
     setCurrentTab(tab);
     setViewingUserId(undefined);
     window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleNavigateToProfile = (usernameOrId: string) => {
+    const foundUser = allUsers.find(
+      (u) => u.username.toLowerCase() === usernameOrId.toLowerCase() || u.id === usernameOrId
+    );
+    if (foundUser) {
+      setViewingUserId(foundUser.id);
+      setCurrentTab("profile");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
   };
 
   const handleShare = (post: Post) => {
@@ -116,6 +129,7 @@ function MainApp() {
               onShare={handleShare}
               onReport={handleReport}
               onTabChange={handleTabChange}
+              onNavigateToProfile={handleNavigateToProfile}
             />
           )}
 
@@ -152,6 +166,7 @@ function MainApp() {
               onSelectPost={(postId) => {
                 handleTabChange("explore");
               }}
+              onNavigateToProfile={handleNavigateToProfile}
             />
           )}
 
@@ -179,6 +194,8 @@ function MainApp() {
 
       {/* Global Modals */}
       <AuthModal />
+      <SettingsModal />
+      <ConnectionsModal onNavigateToProfile={handleNavigateToProfile} />
 
       <ReportModal
         isOpen={reportData.isOpen}

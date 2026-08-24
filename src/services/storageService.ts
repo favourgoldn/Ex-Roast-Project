@@ -7,38 +7,56 @@ import {
   Notification, 
   Report, 
   ReactionType, 
-  CategoryType 
+  CategoryType,
+  FriendRequest,
+  PrivacySettings
 } from "../types";
 import { SEED_USERS, SEED_POSTS, SEED_NOTIFICATIONS, DEFAULT_BADGES } from "./seedData";
+import { api } from "./api";
 
 const STORAGE_KEYS = {
-  USERS: "exroast_users_v2",
-  CURRENT_USER_ID: "exroast_current_user_id_v2",
-  POSTS: "exroast_posts_v2",
-  NOTIFICATIONS: "exroast_notifications_v2",
-  FOLLOWS: "exroast_follows_v2",
-  SAVED_POST_IDS: "exroast_saved_post_ids_v2",
-  BLOCKED_USERS: "exroast_blocked_users_v2",
-  REPORTS: "exroast_reports_v2",
+  USERS: "exroast_users_v3",
+  CURRENT_USER_ID: "exroast_current_user_id_v3",
+  POSTS: "exroast_posts_v3",
+  NOTIFICATIONS: "exroast_notifications_v3",
+  FOLLOWS: "exroast_follows_v3",
+  FRIENDS: "exroast_friends_v3",
+  FRIEND_REQUESTS: "exroast_friend_requests_v3",
+  SAVED_POST_IDS: "exroast_saved_post_ids_v3",
+  BLOCKED_USERS: "exroast_blocked_users_v3",
+  REPORTS: "exroast_reports_v3",
+  PASSWORDS: "exroast_passwords_v3",
 };
 
 type ListenerCallback = () => void;
 
 class StorageService {
   private listeners: Set<ListenerCallback> = new Set();
+  private sseUnsubscribe: (() => void) | null = null;
 
   constructor() {
     this.init();
+    this.initServerSync();
   }
 
   private init() {
     if (typeof window === "undefined") return;
 
     if (!localStorage.getItem(STORAGE_KEYS.USERS)) {
-      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(SEED_USERS));
+      const initializedUsers: User[] = SEED_USERS.map((u) => ({
+        ...u,
+        friendsCount: 3,
+        privacy: {
+          profileVisibility: "public",
+          whoCanFriend: "everyone",
+          whoCanComment: "everyone",
+          savedPostsVisibility: "private",
+          searchDiscoverable: true,
+        },
+      }));
+      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(initializedUsers));
     }
     if (!localStorage.getItem(STORAGE_KEYS.CURRENT_USER_ID)) {
-      // Default to the first seed user (@HeartbreakDealer)
       localStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, SEED_USERS[0].id);
     }
     if (!localStorage.getItem(STORAGE_KEYS.POSTS)) {
@@ -48,11 +66,25 @@ class StorageService {
       localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(SEED_NOTIFICATIONS));
     }
     if (!localStorage.getItem(STORAGE_KEYS.FOLLOWS)) {
-      // Seed follow relationships
       localStorage.setItem(STORAGE_KEYS.FOLLOWS, JSON.stringify({
-        "user-1": ["user-2", "user-3"],
-        "user-2": ["user-1", "user-5"],
+        "user-1": ["user-2", "user-3", "user-4", "user-5"],
+        "user-2": ["user-1", "user-3", "user-5"],
+        "user-3": ["user-1", "user-2"],
+        "user-4": ["user-1", "user-5"],
+        "user-5": ["user-1", "user-2", "user-3"],
       }));
+    }
+    if (!localStorage.getItem(STORAGE_KEYS.FRIENDS)) {
+      localStorage.setItem(STORAGE_KEYS.FRIENDS, JSON.stringify({
+        "user-1": ["user-2", "user-3", "user-5"],
+        "user-2": ["user-1", "user-3"],
+        "user-3": ["user-1", "user-2"],
+        "user-4": ["user-5"],
+        "user-5": ["user-1", "user-4"],
+      }));
+    }
+    if (!localStorage.getItem(STORAGE_KEYS.FRIEND_REQUESTS)) {
+      localStorage.setItem(STORAGE_KEYS.FRIEND_REQUESTS, JSON.stringify([]));
     }
     if (!localStorage.getItem(STORAGE_KEYS.SAVED_POST_IDS)) {
       localStorage.setItem(STORAGE_KEYS.SAVED_POST_IDS, JSON.stringify({
@@ -64,6 +96,54 @@ class StorageService {
     }
     if (!localStorage.getItem(STORAGE_KEYS.REPORTS)) {
       localStorage.setItem(STORAGE_KEYS.REPORTS, JSON.stringify([]));
+    }
+  }
+
+  private initServerSync() {
+    if (typeof window === "undefined") return;
+
+    // Set token for API from local current user
+    const curId = localStorage.getItem(STORAGE_KEYS.CURRENT_USER_ID);
+    if (curId) api.setToken(curId);
+
+    // Subscribe to real-time events from server
+    this.sseUnsubscribe = api.subscribeSSE((event, data) => {
+      this.syncFromServer();
+    });
+
+    // Initial fetch from server in background
+    this.syncFromServer();
+  }
+
+  public async syncFromServer() {
+    try {
+      const [usersRes, postsRes] = await Promise.all([
+        api.getUsers().catch(() => null),
+        api.getPosts().catch(() => null),
+      ]);
+
+      if (usersRes && Array.isArray(usersRes.users) && usersRes.users.length > 0) {
+        localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(usersRes.users));
+      }
+      if (postsRes && Array.isArray(postsRes.posts) && postsRes.posts.length > 0) {
+        localStorage.setItem(STORAGE_KEYS.POSTS, JSON.stringify(postsRes.posts));
+      }
+
+      const cur = this.getCurrentUser();
+      if (cur) {
+        const notifsRes = await api.getNotifications().catch(() => null);
+        if (notifsRes && Array.isArray(notifsRes.notifications)) {
+          const allNotifs = this.getAllNotifications().filter((n) => n.userId !== cur.id);
+          localStorage.setItem(
+            STORAGE_KEYS.NOTIFICATIONS,
+            JSON.stringify([...notifsRes.notifications, ...allNotifs])
+          );
+        }
+      }
+
+      this.notify();
+    } catch {
+      // ignore network errors, fallback to local storage
     }
   }
 
@@ -81,7 +161,16 @@ class StorageService {
   public getUsers(): User[] {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.USERS);
-      return data ? JSON.parse(data) : SEED_USERS;
+      const users: User[] = data ? JSON.parse(data) : SEED_USERS;
+      const friendsMap = this.getFriendsMap();
+      const followsMap = this.getFollowsMap();
+
+      return users.map((u) => ({
+        ...u,
+        friendsCount: friendsMap[u.id]?.length || 0,
+        followingCount: followsMap[u.id]?.length || 0,
+        followersCount: Object.values(followsMap).filter((list) => list.includes(u.id)).length,
+      }));
     } catch {
       return SEED_USERS;
     }
@@ -96,12 +185,18 @@ class StorageService {
 
   public setCurrentUser(userId: string): void {
     localStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, userId);
+    api.setToken(userId);
     this.notify();
+    this.syncFromServer();
   }
 
-  public signUp(username: string, email: string, displayName: string, avatarUrl?: string, bio?: string): User {
+  public signUp(username: string, email: string, displayName: string, avatarUrl?: string, bio?: string, password = "password123"): User {
     const users = this.getUsers();
-    const existing = users.find((u) => u.username.toLowerCase() === username.toLowerCase() || u.email.toLowerCase() === email.toLowerCase());
+    const existing = users.find(
+      (u) =>
+        u.username.toLowerCase() === username.toLowerCase() ||
+        u.email.toLowerCase() === email.toLowerCase()
+    );
     if (existing) {
       throw new Error("Username or email already exists");
     }
@@ -110,32 +205,50 @@ class StorageService {
       id: `user-${Date.now()}`,
       username: username.replace(/[^a-zA-Z0-9_]/g, ""),
       displayName: displayName || username,
-      email,
+      email: email.toLowerCase(),
       avatarUrl: avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${username}`,
-      bio: bio || "New to EX ROAST. Here to share stories and drop burns.",
+      bio: bio || "New to EX ROAST. Here to share stories and drop savage burns.",
       relationshipStatus: "Single & Unbothered",
       roastPoints: 100, // Welcome points
       followersCount: 0,
       followingCount: 0,
+      friendsCount: 0,
       postsCount: 0,
       roastsCount: 0,
       winsCount: 0,
       badges: [DEFAULT_BADGES[1]], // Heartbreak veteran starter badge
       createdAt: new Date().toISOString(),
       isVerified: false,
+      privacy: {
+        profileVisibility: "public",
+        whoCanFriend: "everyone",
+        whoCanComment: "everyone",
+        savedPostsVisibility: "private",
+        searchDiscoverable: true,
+      },
     };
 
     users.push(newUser);
     localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
     this.setCurrentUser(newUser.id);
-    
+
+    // Call server register in background
+    api.register({
+      username: newUser.username,
+      email: newUser.email,
+      password,
+      displayName: newUser.displayName,
+      avatarUrl: newUser.avatarUrl,
+      bio: newUser.bio,
+    }).catch(() => {});
+
     // Add welcome notification
     this.createNotification({
       userId: newUser.id,
       actorId: "system",
       actorUsername: "exroast",
       actorDisplayName: "EX ROAST",
-      actorAvatar: "",
+      actorAvatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80",
       type: "achievement_unlocked",
       title: "Welcome to EX ROAST 🔥",
       message: "You received 100 bonus Roast Points for joining the community!",
@@ -147,7 +260,7 @@ class StorageService {
     return newUser;
   }
 
-  public signIn(identifier: string): User {
+  public signIn(identifier: string, password?: string): User {
     const users = this.getUsers();
     const cleanId = identifier.trim().toLowerCase().replace(/^@/, "");
     const user = users.find((u) => u.username.toLowerCase() === cleanId || u.email.toLowerCase() === cleanId);
@@ -155,11 +268,16 @@ class StorageService {
       throw new Error("No account found with this username or email");
     }
     this.setCurrentUser(user.id);
+
+    // Call server login in background
+    api.login(identifier, password).catch(() => {});
+
     return user;
   }
 
   public signOut(): void {
     localStorage.removeItem(STORAGE_KEYS.CURRENT_USER_ID);
+    api.setToken(null);
     this.notify();
   }
 
@@ -171,7 +289,7 @@ class StorageService {
     users[index] = { ...users[index], ...updates };
     localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
 
-    // Also update author info across their posts and roasts
+    // Update author info across their posts and roasts
     const posts = this.getPosts();
     let postsUpdated = false;
     posts.forEach((post) => {
@@ -193,8 +311,44 @@ class StorageService {
       localStorage.setItem(STORAGE_KEYS.POSTS, JSON.stringify(posts));
     }
 
+    // Call server update in background
+    api.updateProfile(updates).catch(() => {});
+
     this.notify();
     return users[index];
+  }
+
+  public updatePrivacy(userId: string, privacyUpdates: Partial<PrivacySettings>): void {
+    const users = this.getUsers();
+    const user = users.find((u) => u.id === userId);
+    if (user) {
+      user.privacy = {
+        ...(user.privacy || {
+          profileVisibility: "public",
+          whoCanFriend: "everyone",
+          whoCanComment: "everyone",
+          savedPostsVisibility: "private",
+          searchDiscoverable: true,
+        }),
+        ...privacyUpdates,
+      };
+      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
+      api.updatePrivacy(user.privacy).catch(() => {});
+      this.notify();
+    }
+  }
+
+  public deleteAccount(userId: string): void {
+    const users = this.getUsers().filter((u) => u.id !== userId);
+    localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
+
+    // Clean up current user
+    if (this.getCurrentUser()?.id === userId) {
+      this.signOut();
+    }
+
+    api.deleteAccount().catch(() => {});
+    this.notify();
   }
 
   public addRoastPoints(userId: string, points: number): void {
@@ -259,41 +413,41 @@ class StorageService {
       : current.avatarUrl);
 
     const posts = this.getPosts();
-    const postId = `post-${Date.now()}`;
-    const initialRoasts: Roast[] = [];
 
+    const initialRoasts: Roast[] = [];
     if (params.firstRoastContent && params.firstRoastContent.trim()) {
       initialRoasts.push({
         id: `roast-${Date.now()}-0`,
-        postId,
+        postId: `post-${Date.now()}`,
         authorId: current.id,
         authorUsername: current.username,
         authorDisplayName: current.displayName,
         authorAvatar: current.avatarUrl,
         content: params.firstRoastContent.trim(),
-        score: 5,
-        upvotes: 5,
+        score: 1,
+        upvotes: 1,
         downvotes: 0,
         createdAt: new Date().toISOString(),
-        isTopRoast: true,
+        userVote: "up",
       });
     }
 
     const newPost: Post = {
-      id: postId,
+      id: `post-${Date.now()}`,
       authorId,
       authorUsername,
       authorDisplayName,
       authorAvatar,
       isAnonymous: params.isAnonymous,
       anonymousAlias: params.anonymousAlias,
-      title: params.title,
-      content: params.content,
+      title: params.title.trim(),
+      content: params.content.trim(),
       category: params.category,
       imageUrl: params.imageUrl,
-      hashtags: params.hashtags.map((t) => t.replace(/^#/, "").trim()).filter(Boolean),
+      hashtags: params.hashtags.map((h) => h.replace("#", "").trim()).filter(Boolean),
       createdAt: new Date().toISOString(),
       reactions: { savage: 0, dead: 0, redFlag: 0, deserved: 0 },
+      userReaction: null,
       roastsCount: initialRoasts.length,
       commentsCount: 0,
       savesCount: 0,
@@ -301,6 +455,7 @@ class StorageService {
       roasts: initialRoasts,
       comments: [],
       flameScore: 100,
+      isSeed: false,
     };
 
     posts.unshift(newPost);
@@ -308,7 +463,18 @@ class StorageService {
 
     // Update user stats
     this.updateUser(current.id, { postsCount: current.postsCount + 1 });
-    this.addRoastPoints(current.id, 100); // reward 100 points for posting
+    this.addRoastPoints(current.id, 50); // reward 50 points for posting
+
+    // Call server in background
+    api.createPost({
+      title: newPost.title,
+      content: newPost.content,
+      category: newPost.category,
+      imageUrl: newPost.imageUrl,
+      hashtags: newPost.hashtags,
+      isAnonymous: newPost.isAnonymous,
+      anonymousAlias: newPost.anonymousAlias,
+    }).catch(() => {});
 
     this.notify();
     return newPost;
@@ -324,6 +490,7 @@ class StorageService {
       const filtered = posts.filter((p) => p.id !== postId);
       localStorage.setItem(STORAGE_KEYS.POSTS, JSON.stringify(filtered));
       this.updateUser(current.id, { postsCount: Math.max(0, current.postsCount - 1) });
+      api.deletePost(postId).catch(() => {});
       this.notify();
     }
   }
@@ -341,12 +508,10 @@ class StorageService {
     const currentReaction = post.userReaction;
 
     if (currentReaction === reactionType) {
-      // Remove reaction
       post.reactions[reactionType] = Math.max(0, post.reactions[reactionType] - 1);
       post.userReaction = null;
       post.flameScore = Math.max(0, post.flameScore - 10);
     } else {
-      // If had previous reaction, decrement it
       if (currentReaction) {
         post.reactions[currentReaction] = Math.max(0, post.reactions[currentReaction] - 1);
       }
@@ -354,7 +519,6 @@ class StorageService {
       post.userReaction = reactionType;
       post.flameScore += 15;
 
-      // Send notification to author if not self
       if (post.authorId !== current.id && !post.isAnonymous) {
         const emoji = reactionType === "savage" ? "🔥" : reactionType === "dead" ? "💀" : reactionType === "redFlag" ? "🚩" : "👏";
         this.createNotification({
@@ -374,6 +538,7 @@ class StorageService {
     }
 
     localStorage.setItem(STORAGE_KEYS.POSTS, JSON.stringify(posts));
+    api.reactToPost(postId, reactionType).catch(() => {});
     this.notify();
     return post;
   }
@@ -407,16 +572,12 @@ class StorageService {
     post.roastsCount = post.roasts.length;
     post.flameScore += 50;
 
-    // Recalculate top roast
     this.updateTopRoast(post);
-
     localStorage.setItem(STORAGE_KEYS.POSTS, JSON.stringify(posts));
 
-    // Update user stats
     this.updateUser(current.id, { roastsCount: current.roastsCount + 1 });
-    this.addRoastPoints(current.id, 25); // reward 25 points for submitting roast
+    this.addRoastPoints(current.id, 20);
 
-    // Send notification to post author
     if (post.authorId !== current.id && !post.isAnonymous) {
       this.createNotification({
         userId: post.authorId,
@@ -434,6 +595,7 @@ class StorageService {
       });
     }
 
+    api.submitRoast(postId, content).catch(() => {});
     this.notify();
     return newRoast;
   }
@@ -452,45 +614,22 @@ class StorageService {
     const currentVote = roast.userVote;
 
     if (currentVote === direction) {
-      // Toggle off
-      if (direction === "up") {
-        roast.upvotes = Math.max(0, roast.upvotes - 1);
-      } else {
-        roast.downvotes = Math.max(0, roast.downvotes - 1);
-      }
+      if (direction === "up") roast.upvotes = Math.max(0, roast.upvotes - 1);
+      if (direction === "down") roast.downvotes = Math.max(0, roast.downvotes - 1);
       roast.userVote = null;
     } else {
-      if (currentVote === "up") {
-        roast.upvotes = Math.max(0, roast.upvotes - 1);
-      } else if (currentVote === "down") {
-        roast.downvotes = Math.max(0, roast.downvotes - 1);
-      }
+      if (currentVote === "up") roast.upvotes = Math.max(0, roast.upvotes - 1);
+      if (currentVote === "down") roast.downvotes = Math.max(0, roast.downvotes - 1);
 
       if (direction === "up") {
         roast.upvotes += 1;
-        this.addRoastPoints(roast.authorId, 10);
+        roast.userVote = "up";
+        if (roast.authorId !== current.id) {
+          this.addRoastPoints(roast.authorId, 5);
+        }
       } else {
         roast.downvotes += 1;
-        this.addRoastPoints(roast.authorId, -5);
-      }
-      roast.userVote = direction;
-
-      // Send notification if upvoted
-      if (direction === "up" && roast.authorId !== current.id) {
-        this.createNotification({
-          userId: roast.authorId,
-          actorId: current.id,
-          actorUsername: current.username,
-          actorDisplayName: current.displayName,
-          actorAvatar: current.avatarUrl,
-          type: "roast_voted",
-          title: "Roast Upvoted 🚀",
-          message: `@${current.username} gave your roast a flame point!`,
-          targetPostId: post.id,
-          targetRoastId: roast.id,
-          createdAt: new Date().toISOString(),
-          read: false,
-        });
+        roast.userVote = "down";
       }
     }
 
@@ -498,6 +637,7 @@ class StorageService {
     this.updateTopRoast(post);
 
     localStorage.setItem(STORAGE_KEYS.POSTS, JSON.stringify(posts));
+    api.voteRoast(roastId, roast.userVote).catch(() => {});
     this.notify();
     return roast;
   }
@@ -536,6 +676,7 @@ class StorageService {
       this.updateTopRoast(post);
       localStorage.setItem(STORAGE_KEYS.POSTS, JSON.stringify(posts));
       this.updateUser(current.id, { roastsCount: Math.max(0, current.roastsCount - 1) });
+      api.deleteRoast(roastId).catch(() => {});
       this.notify();
     }
   }
@@ -586,6 +727,7 @@ class StorageService {
       });
     }
 
+    api.addComment(postId, content).catch(() => {});
     this.notify();
     return newComment;
   }
@@ -635,6 +777,7 @@ class StorageService {
       });
     }
 
+    api.addReply(commentId, content).catch(() => {});
     this.notify();
     return newReply;
   }
@@ -668,7 +811,6 @@ class StorageService {
     map[current.id] = nextSaved;
     localStorage.setItem(STORAGE_KEYS.SAVED_POST_IDS, JSON.stringify(map));
 
-    // Update post count
     const posts = this.getPosts();
     const post = posts.find((p) => p.id === postId);
     if (post) {
@@ -676,6 +818,7 @@ class StorageService {
       localStorage.setItem(STORAGE_KEYS.POSTS, JSON.stringify(posts));
     }
 
+    api.toggleSavePost(postId).catch(() => {});
     this.notify();
     return !isSaved;
   }
@@ -685,7 +828,12 @@ class StorageService {
   }
 
   public getPostsByAuthor(authorId: string): Post[] {
-    return this.getPosts().filter((p) => p.authorId === authorId);
+    const current = this.getCurrentUser();
+    return this.getPosts().filter((p) => {
+      if (p.authorId !== authorId) return false;
+      if (p.isAnonymous && current?.id !== authorId) return false;
+      return true;
+    });
   }
 
   public getSavedPosts(userId?: string): Post[] {
@@ -726,20 +874,7 @@ class StorageService {
     map[current.id] = nextFollowing;
     localStorage.setItem(STORAGE_KEYS.FOLLOWS, JSON.stringify(map));
 
-    // Update follow counts on user entities
-    const users = this.getUsers();
-    const curUser = users.find((u) => u.id === current.id);
-    const tarUser = users.find((u) => u.id === targetUserId);
-
-    if (curUser) {
-      curUser.followingCount = Math.max(0, curUser.followingCount + (isFollowing ? -1 : 1));
-    }
-    if (tarUser) {
-      tarUser.followersCount = Math.max(0, tarUser.followersCount + (isFollowing ? -1 : 1));
-    }
-
-    localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
-
+    const tarUser = this.getUsers().find((u) => u.id === targetUserId);
     if (!isFollowing && tarUser) {
       this.createNotification({
         userId: targetUserId,
@@ -755,6 +890,7 @@ class StorageService {
       });
     }
 
+    api.toggleFollow(targetUserId).catch(() => {});
     this.notify();
     return !isFollowing;
   }
@@ -765,6 +901,150 @@ class StorageService {
     const map = this.getFollowsMap();
     const following = map[current.id] || [];
     return following.includes(targetUserId);
+  }
+
+  // --- FRIENDS & FRIEND REQUESTS ---
+
+  private getFriendsMap(): Record<string, string[]> {
+    try {
+      const data = localStorage.getItem(STORAGE_KEYS.FRIENDS);
+      return data ? JSON.parse(data) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  public getFriends(userId: string): User[] {
+    const map = this.getFriendsMap();
+    const friendIds = map[userId] || [];
+    const users = this.getUsers();
+    return friendIds.map((id) => users.find((u) => u.id === id)).filter(Boolean) as User[];
+  }
+
+  public isFriend(targetUserId: string): boolean {
+    const current = this.getCurrentUser();
+    if (!current) return false;
+    const map = this.getFriendsMap();
+    return (map[current.id] || []).includes(targetUserId);
+  }
+
+  public getFriendRequests(userId: string): { received: FriendRequest[]; sent: FriendRequest[] } {
+    try {
+      const data = localStorage.getItem(STORAGE_KEYS.FRIEND_REQUESTS);
+      const all: FriendRequest[] = data ? JSON.parse(data) : [];
+      return {
+        received: all.filter((r) => r.receiverId === userId && r.status === "pending"),
+        sent: all.filter((r) => r.senderId === userId && r.status === "pending"),
+      };
+    } catch {
+      return { received: [], sent: [] };
+    }
+  }
+
+  public sendFriendRequest(targetUserId: string): FriendRequest {
+    const current = this.getCurrentUser();
+    if (!current) throw new Error("Must be logged in to add friends");
+    if (current.id === targetUserId) throw new Error("Cannot friend yourself");
+
+    const data = localStorage.getItem(STORAGE_KEYS.FRIEND_REQUESTS);
+    const all: FriendRequest[] = data ? JSON.parse(data) : [];
+
+    const existing = all.find(
+      (r) =>
+        r.status === "pending" &&
+        ((r.senderId === current.id && r.receiverId === targetUserId) ||
+          (r.senderId === targetUserId && r.receiverId === current.id))
+    );
+    if (existing) return existing;
+
+    const newReq: FriendRequest = {
+      id: `fr-${Date.now()}`,
+      senderId: current.id,
+      senderUsername: current.username,
+      senderDisplayName: current.displayName,
+      senderAvatar: current.avatarUrl,
+      receiverId: targetUserId,
+      status: "pending",
+      createdAt: new Date().toISOString(),
+    };
+
+    all.push(newReq);
+    localStorage.setItem(STORAGE_KEYS.FRIEND_REQUESTS, JSON.stringify(all));
+
+    this.createNotification({
+      userId: targetUserId,
+      actorId: current.id,
+      actorUsername: current.username,
+      actorDisplayName: current.displayName,
+      actorAvatar: current.avatarUrl,
+      type: "friend_request_received",
+      title: "Friend Request 🤝",
+      message: `@${current.username} sent you a friend request.`,
+      createdAt: new Date().toISOString(),
+      read: false,
+    });
+
+    api.sendFriendRequest(targetUserId).catch(() => {});
+    this.notify();
+    return newReq;
+  }
+
+  public respondFriendRequest(requestId: string, action: "accept" | "decline" | "cancel"): void {
+    const current = this.getCurrentUser();
+    if (!current) return;
+
+    const data = localStorage.getItem(STORAGE_KEYS.FRIEND_REQUESTS);
+    const all: FriendRequest[] = data ? JSON.parse(data) : [];
+    const reqIndex = all.findIndex((r) => r.id === requestId);
+    if (reqIndex === -1) return;
+
+    const req = all[reqIndex];
+
+    if (action === "accept") {
+      req.status = "accepted";
+      const friendsMap = this.getFriendsMap();
+      if (!friendsMap[req.senderId]) friendsMap[req.senderId] = [];
+      if (!friendsMap[req.receiverId]) friendsMap[req.receiverId] = [];
+
+      if (!friendsMap[req.senderId].includes(req.receiverId)) friendsMap[req.senderId].push(req.receiverId);
+      if (!friendsMap[req.receiverId].includes(req.senderId)) friendsMap[req.receiverId].push(req.senderId);
+
+      localStorage.setItem(STORAGE_KEYS.FRIENDS, JSON.stringify(friendsMap));
+
+      this.createNotification({
+        userId: req.senderId,
+        actorId: current.id,
+        actorUsername: current.username,
+        actorDisplayName: current.displayName,
+        actorAvatar: current.avatarUrl,
+        type: "friend_request_accepted",
+        title: "Friend Request Accepted 🎉",
+        message: `@${current.username} accepted your friend request!`,
+        createdAt: new Date().toISOString(),
+        read: false,
+      });
+    } else if (action === "decline") {
+      req.status = "declined";
+    } else if (action === "cancel") {
+      all.splice(reqIndex, 1);
+    }
+
+    localStorage.setItem(STORAGE_KEYS.FRIEND_REQUESTS, JSON.stringify(all));
+    api.respondFriendRequest(requestId, action).catch(() => {});
+    this.notify();
+  }
+
+  public unfriend(targetUserId: string): void {
+    const current = this.getCurrentUser();
+    if (!current) return;
+
+    const map = this.getFriendsMap();
+    if (map[current.id]) map[current.id] = map[current.id].filter((id) => id !== targetUserId);
+    if (map[targetUserId]) map[targetUserId] = map[targetUserId].filter((id) => id !== current.id);
+
+    localStorage.setItem(STORAGE_KEYS.FRIENDS, JSON.stringify(map));
+    api.unfriend(targetUserId).catch(() => {});
+    this.notify();
   }
 
   // --- NOTIFICATIONS ---
@@ -805,6 +1085,7 @@ class StorageService {
     if (notif) {
       notif.read = true;
       localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(all));
+      api.markNotificationRead(notifId).catch(() => {});
       this.notify();
     }
   }
@@ -815,6 +1096,7 @@ class StorageService {
       if (n.userId === userId) n.read = true;
     });
     localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(all));
+    api.markAllNotificationsRead().catch(() => {});
     this.notify();
   }
 
@@ -834,6 +1116,7 @@ class StorageService {
     if (!blocked.includes(targetUserId)) {
       blocked.push(targetUserId);
       localStorage.setItem(STORAGE_KEYS.BLOCKED_USERS, JSON.stringify(blocked));
+      api.toggleBlockUser(targetUserId).catch(() => {});
       this.notify();
     }
   }
@@ -850,6 +1133,7 @@ class StorageService {
       };
       reports.push(newReport);
       localStorage.setItem(STORAGE_KEYS.REPORTS, JSON.stringify(reports));
+      api.submitReport(report).catch(() => {});
       return newReport;
     } catch {
       return {

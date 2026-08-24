@@ -10,6 +10,14 @@ export type CategoryType =
   | "Breakup"
   | "Other";
 
+export interface PrivacySettings {
+  profileVisibility: "public" | "friends";
+  whoCanFriend: "everyone" | "friends_of_friends";
+  whoCanComment: "everyone" | "friends_and_followers" | "none";
+  savedPostsVisibility: "private" | "friends" | "public";
+  searchDiscoverable: boolean;
+}
+
 export interface User {
   id: string;
   username: string;
@@ -21,12 +29,27 @@ export interface User {
   roastPoints: number;
   followersCount: number;
   followingCount: number;
+  friendsCount?: number;
   postsCount: number;
   roastsCount: number;
   winsCount: number;
   badges: Badge[];
   createdAt: string;
   isVerified?: boolean;
+  isSeed?: boolean;
+  privacy?: PrivacySettings;
+  blockedUsers?: string[];
+}
+
+export interface FriendRequest {
+  id: string;
+  senderId: string;
+  senderUsername: string;
+  senderDisplayName: string;
+  senderAvatar: string;
+  receiverId: string;
+  status: "pending" | "accepted" | "declined";
+  createdAt: string;
 }
 
 export interface Badge {
@@ -115,7 +138,20 @@ export interface Post {
   roasts: Roast[];
   comments: Comment[];
   flameScore: number; // calculated engagement score
+  isSeed?: boolean;
 }
+
+export type NotificationType =
+  | "roast_submitted"
+  | "roast_voted"
+  | "post_reaction"
+  | "post_comment"
+  | "comment_reply"
+  | "user_followed"
+  | "friend_request_received"
+  | "friend_request_accepted"
+  | "achievement_unlocked"
+  | "top_roast_winner";
 
 export interface Notification {
   id: string;
@@ -124,7 +160,7 @@ export interface Notification {
   actorUsername: string;
   actorDisplayName: string;
   actorAvatar: string;
-  type: "roast_submitted" | "roast_voted" | "post_reaction" | "post_comment" | "comment_reply" | "user_followed" | "achievement_unlocked" | "top_roast_winner";
+  type: NotificationType;
   title: string;
   message: string;
   targetPostId?: string;
@@ -144,8 +180,17 @@ export interface Report {
   status: "pending" | "reviewed" | "resolved";
 }
 
-export type TabType = "home" | "explore" | "create" | "hall-of-fame" | "notifications" | "profile" | "search";
+export type TabType = 
+  | "home" 
+  | "explore" 
+  | "create" 
+  | "hall-of-fame" 
+  | "notifications" 
+  | "profile" 
+  | "search" 
+  | "connections";
 
-export type FeedSort = "for-you" | "trending" | "latest" | "most-roasted";
+export type FeedSort = "for-you" | "following" | "trending" | "latest" | "most-roasted";
 
 export type TimeFilter = "today" | "week" | "month" | "all";
+

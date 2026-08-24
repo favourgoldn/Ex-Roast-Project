@@ -1,6 +1,6 @@
 {
   "name": "EX ROAST",
-  "description": "Premium social entertainment platform to anonymously share stories about exes, submit savage roasts, and vote in the community Hall of Fame.",
+  "description": "Multi-user social entertainment platform to anonymously share stories about exes, submit savage roasts, connect with friends, follow creators, and vote in the community Hall of Fame.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

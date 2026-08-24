@@ -10,17 +10,30 @@ import {
   UserPlus, 
   CheckCheck, 
   Clock,
-  Trash2
+  Users,
+  Check,
+  X
 } from "lucide-react";
 
 interface NotificationsViewProps {
   onTabChange: (tab: TabType) => void;
   onSelectPost?: (postId: string) => void;
+  onNavigateToProfile?: (username: string) => void;
 }
 
-export const NotificationsView: React.FC<NotificationsViewProps> = ({ onTabChange, onSelectPost }) => {
-  const { currentUser } = useAuth();
-  const [filter, setFilter] = useState<"all" | "unread">("all");
+export const NotificationsView: React.FC<NotificationsViewProps> = ({ 
+  onTabChange, 
+  onSelectPost,
+  onNavigateToProfile
+}) => {
+  const { 
+    currentUser, 
+    openConnectionsModal, 
+    getFriendRequests,
+    respondFriendRequest 
+  } = useAuth();
+  
+  const [filter, setFilter] = useState<"all" | "unread" | "requests">("all");
 
   if (!currentUser) {
     return (
@@ -38,7 +51,13 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ onTabChang
   }
 
   const notifications = storage.getNotifications(currentUser.id);
-  const displayed = filter === "unread" ? notifications.filter((n) => !n.read) : notifications;
+  const { received: receivedRequests } = getFriendRequests();
+
+  const displayed = filter === "unread" 
+    ? notifications.filter((n) => !n.read)
+    : filter === "requests"
+    ? notifications.filter((n) => n.type === "user_followed" || n.type === "achievement_unlocked")
+    : notifications;
 
   const handleMarkAllRead = () => {
     storage.markAllNotificationsAsRead(currentUser.id);
@@ -79,10 +98,10 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ onTabChang
         <div>
           <h1 className="text-2xl font-black text-white font-display flex items-center gap-2">
             <Bell className="w-5 h-5 text-red-500" />
-            <span>Activity Notifications</span>
+            <span>Activity & Notifications</span>
           </h1>
           <p className="text-xs text-zinc-400 mt-0.5">
-            Roast votes, reactions, new comments, and flame points
+            Roast votes, reactions, new comments, friend requests, and flame points
           </p>
         </div>
 
@@ -97,6 +116,31 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ onTabChang
           </button>
         )}
       </div>
+
+      {/* Pending Friend Requests Highlight Banner if any */}
+      {receivedRequests.length > 0 && (
+        <div className="p-4 bg-gradient-to-r from-red-950/50 to-amber-950/30 border border-red-500/40 rounded-2xl flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-red-600/20 text-red-400">
+              <Users className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-xs font-bold text-white">
+                You have {receivedRequests.length} pending friend request{receivedRequests.length > 1 ? "s" : ""}!
+              </p>
+              <p className="text-[11px] text-zinc-400">
+                From @{receivedRequests[0].senderUsername} {receivedRequests.length > 1 ? `and ${receivedRequests.length - 1} other` : ""}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => openConnectionsModal("requests")}
+            className="px-3.5 py-1.5 bg-red-600 hover:bg-red-500 text-white font-bold text-xs rounded-xl shadow transition-all shrink-0"
+          >
+            Review Requests
+          </button>
+        </div>
+      )}
 
       {/* Filter Tabs */}
       <div className="flex items-center gap-2">

@@ -11,7 +11,10 @@ import {
   User, 
   ShieldCheck, 
   Sparkles,
-  TrendingUp
+  TrendingUp,
+  Users,
+  Settings,
+  Bookmark
 } from "lucide-react";
 
 interface SidebarProps {
@@ -27,10 +30,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenGuidelines,
   unreadNotificationsCount,
 }) => {
-  const { currentUser, openAuthModal } = useAuth();
+  const { 
+    currentUser, 
+    openAuthModal, 
+    openConnectionsModal, 
+    openSettingsModal,
+    getFriendRequests 
+  } = useAuth();
+
+  const { received: pendingRequests } = currentUser ? getFriendRequests() : { received: [] };
 
   const navItems = [
-    { id: "home" as TabType, label: "Home", icon: Home },
+    { id: "home" as TabType, label: "Home Feed", icon: Home },
     { id: "explore" as TabType, label: "Explore Stories", icon: Flame },
     { id: "hall-of-fame" as TabType, label: "Hall of Fame", icon: Trophy, badge: "TOP" },
     { id: "create" as TabType, label: "Post Story", icon: PlusCircle, highlight: true },
@@ -41,9 +52,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <aside className="w-64 shrink-0 hidden lg:flex flex-col justify-between h-[calc(100vh-65px)] sticky top-[65px] border-r border-zinc-800/80 p-4 bg-[#0a0a0d]/60 backdrop-blur-md overflow-y-auto">
-      <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-5">
         {/* Navigation List */}
-        <nav className="flex flex-col gap-1.5">
+        <nav className="flex flex-col gap-1">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = currentTab === item.id;
@@ -89,15 +100,47 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </button>
             );
           })}
+
+          {/* Direct Social Links */}
+          {currentUser && (
+            <>
+              <button
+                id="sidebar-nav-friends"
+                onClick={() => openConnectionsModal("friends")}
+                className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl font-semibold text-sm text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/30 transition-all group"
+              >
+                <div className="flex items-center gap-3">
+                  <Users className="w-4 h-4 text-zinc-400 group-hover:text-red-400 transition-colors" />
+                  <span>Friends & Connections</span>
+                </div>
+                {pendingRequests.length > 0 && (
+                  <span className="px-2 py-0.5 text-[10px] font-black bg-amber-500 text-black rounded-full">
+                    {pendingRequests.length}
+                  </span>
+                )}
+              </button>
+
+              <button
+                id="sidebar-nav-settings"
+                onClick={openSettingsModal}
+                className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl font-semibold text-sm text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/30 transition-all group"
+              >
+                <div className="flex items-center gap-3">
+                  <Settings className="w-4 h-4 text-zinc-400 group-hover:text-red-400 transition-colors" />
+                  <span>Privacy Settings</span>
+                </div>
+              </button>
+            </>
+          )}
         </nav>
 
-        {/* Live Trend / Quick Community Highlights Card */}
+        {/* Live Trending Highlights Card */}
         <div className="bg-[#12121a] border border-zinc-800/80 rounded-2xl p-3.5 flex flex-col gap-2.5 relative overflow-hidden">
           <div className="absolute top-0 right-0 w-24 h-24 bg-red-600/10 rounded-full blur-xl pointer-events-none" />
           
           <div className="flex items-center gap-2 text-xs font-bold text-zinc-300">
             <TrendingUp className="w-3.5 h-3.5 text-red-500" />
-            <span>Trending Categories</span>
+            <span>Trending Roast Categories</span>
           </div>
 
           <div className="flex flex-wrap gap-1.5">
@@ -140,7 +183,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Footer Profile Status */}
       {currentUser ? (
-        <div className="pt-4 border-t border-zinc-800 flex items-center gap-3">
+        <div className="pt-3 border-t border-zinc-800 flex items-center gap-3">
           <img
             src={currentUser.avatarUrl}
             alt={currentUser.username}
@@ -156,11 +199,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
       ) : (
-        <div className="pt-4 border-t border-zinc-800">
+        <div className="pt-3 border-t border-zinc-800">
           <button
-            id="sidebar-signin-btn"
             onClick={() => openAuthModal("signin")}
-            className="w-full py-2 bg-[#181822] hover:bg-[#20202e] border border-zinc-700 text-xs font-bold text-white rounded-xl transition-colors"
+            className="w-full py-2 bg-red-600 hover:bg-red-500 text-white font-bold text-xs rounded-xl shadow transition-all"
           >
             Sign In / Register
           </button>

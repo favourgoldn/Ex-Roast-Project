@@ -1,24 +1,56 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
-import { User } from "../types";
+import { User, FriendRequest, PrivacySettings } from "../types";
 import { storage } from "../services/storageService";
+import { api } from "../services/api";
 import { useToast } from "./ToastContext";
 
 interface AuthContextValue {
   currentUser: User | null;
   isAuthenticated: boolean;
   allUsers: User[];
-  signIn: (identifier: string) => Promise<boolean>;
-  signUp: (username: string, email: string, displayName: string, avatarUrl?: string, bio?: string) => Promise<boolean>;
+  signIn: (identifier: string, password?: string) => Promise<boolean>;
+  signUp: (
+    username: string, 
+    email: string, 
+    displayName: string, 
+    avatarUrl?: string, 
+    bio?: string, 
+    password?: string
+  ) => Promise<boolean>;
   signOut: () => void;
-  updateProfile: (updates: Partial<User>) => void;
+  updateProfile: (updates: Partial<User>) => Promise<boolean>;
+  updatePrivacy: (privacyUpdates: Partial<PrivacySettings>) => Promise<boolean>;
+  changePassword: (currentPass: string, newPass: string) => Promise<boolean>;
+  resetPassword: (identifier: string, newPass: string) => Promise<boolean>;
+  deleteAccount: () => Promise<boolean>;
   switchDemoUser: (userId: string) => void;
+  
+  // Social relationships
   toggleFollow: (targetUserId: string) => boolean;
   isFollowing: (targetUserId: string) => boolean;
+  sendFriendRequest: (targetUserId: string) => Promise<boolean>;
+  respondFriendRequest: (requestId: string, action: "accept" | "decline" | "cancel") => void;
+  unfriend: (targetUserId: string) => void;
+  isFriend: (targetUserId: string) => boolean;
+  getFriends: (userId?: string) => User[];
+  getFriendRequests: () => { received: FriendRequest[]; sent: FriendRequest[] };
   blockUser: (targetUserId: string) => void;
-  openAuthModal: (initialMode?: "signin" | "signup") => void;
+  isBlocked: (targetUserId: string) => boolean;
+
+  // Modal controls
+  openAuthModal: (initialMode?: "signin" | "signup" | "reset") => void;
   closeAuthModal: () => void;
   isAuthModalOpen: boolean;
-  authModalMode: "signin" | "signup";
+  authModalMode: "signin" | "signup" | "reset";
+
+  isSettingsModalOpen: boolean;
+  openSettingsModal: () => void;
+  closeSettingsModal: () => void;
+
+  isConnectionsModalOpen: boolean;
+  openConnectionsModal: (initialTab?: "friends" | "requests" | "following" | "discover") => void;
+  closeConnectionsModal: () => void;
+  connectionsModalTab: "friends" | "requests" | "following" | "discover";
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -26,8 +58,14 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(storage.getCurrentUser());
   const [allUsers, setAllUsers] = useState<User[]>(storage.getUsers());
+  
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [authModalMode, setAuthModalMode] = useState<"signin" | "signup">("signin");
+  const [authModalMode, setAuthModalMode] = useState<"signin" | "signup" | "reset">("signin");
+
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [isConnectionsModalOpen, setIsConnectionsModalOpen] = useState(false);
+  const [connectionsModalTab, setConnectionsModalTab] = useState<"friends" | "requests" | "following" | "discover">("friends");
+
   const { success, error, roast } = useToast();
 
   const syncState = useCallback(() => {
@@ -40,7 +78,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => unsubscribe();
   }, [syncState]);
 
-  const openAuthModal = useCallback((mode: "signin" | "signup" = "signin") => {
+  const openAuthModal = useCallback((mode: "signin" | "signup" | "reset" = "signin") => {
     setAuthModalMode(mode);
     setIsAuthModalOpen(true);
   }, []);
@@ -49,25 +87,57 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsAuthModalOpen(false);
   }, []);
 
-  const signIn = async (identifier: string): Promise<boolean> => {
+  const openSettingsModal = useCallback(() => {
+    if (!currentUser) {
+      openAuthModal("signin");
+      return;
+    }
+    setIsSettingsModalOpen(true);
+  }, [currentUser, openAuthModal]);
+
+  const closeSettingsModal = useCallback(() => {
+    setIsSettingsModalOpen(false);
+  }, []);
+
+  const openConnectionsModal = useCallback((tab: "friends" | "requests" | "following" | "discover" = "friends") => {
+    if (!currentUser) {
+      openAuthModal("signin");
+      return;
+    }
+    setConnectionsModalTab(tab);
+    setIsConnectionsModalOpen(true);
+  }, [currentUser, openAuthModal]);
+
+  const closeConnectionsModal = useCallback(() => {
+    setIsConnectionsModalOpen(false);
+  }, []);
+
+  const signIn = async (identifier: string, password = "password123"): Promise<boolean> => {
     try {
-      const user = storage.signIn(identifier);
+      const user = storage.signIn(identifier, password);
       setCurrentUser(user);
       setIsAuthModalOpen(false);
       success("Welcome back!", `Signed in as @${user.username}`);
       return true;
     } catch (err: any) {
-      error("Sign In Failed", err.message || "Invalid username or email");
+      error("Sign In Failed", err.message || "Invalid username or password");
       return false;
     }
   };
 
-  const signUp = async (username: string, email: string, displayName: string, avatarUrl?: string, bio?: string): Promise<boolean> => {
+  const signUp = async (
+    username: string,
+    email: string,
+    displayName: string,
+    avatarUrl?: string,
+    bio?: string,
+    password = "password123"
+  ): Promise<boolean> => {
     try {
-      const user = storage.signUp(username, email, displayName, avatarUrl, bio);
+      const user = storage.signUp(username, email, displayName, avatarUrl, bio, password);
       setCurrentUser(user);
       setIsAuthModalOpen(false);
-      roast("Account Created! 🔥", `Welcome @${user.username}. +100 Roast Points awarded!`);
+      roast("Account Created! 🔥", `Welcome @${user.username}. +100 Welcome Roast Points awarded!`);
       return true;
     } catch (err: any) {
       error("Registration Failed", err.message || "Could not create account");
@@ -78,17 +148,67 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signOut = () => {
     storage.signOut();
     setCurrentUser(null);
-    success("Signed Out", "You have been logged out.");
+    success("Signed Out", "You have been safely logged out.");
   };
 
-  const updateProfile = (updates: Partial<User>) => {
-    if (!currentUser) return;
+  const updateProfile = async (updates: Partial<User>): Promise<boolean> => {
+    if (!currentUser) return false;
     try {
       const updated = storage.updateUser(currentUser.id, updates);
       setCurrentUser(updated);
-      success("Profile Updated", "Your changes have been saved.");
+      success("Profile Updated", "Your profile details have been saved.");
+      return true;
     } catch (err: any) {
       error("Update Failed", err.message);
+      return false;
+    }
+  };
+
+  const updatePrivacy = async (privacyUpdates: Partial<PrivacySettings>): Promise<boolean> => {
+    if (!currentUser) return false;
+    try {
+      storage.updatePrivacy(currentUser.id, privacyUpdates);
+      success("Privacy Settings Saved", "Your privacy preferences have been updated.");
+      return true;
+    } catch (err: any) {
+      error("Privacy Update Failed", err.message);
+      return false;
+    }
+  };
+
+  const changePassword = async (currentPass: string, newPass: string): Promise<boolean> => {
+    if (!currentUser) return false;
+    try {
+      await api.changePassword(currentPass, newPass);
+      success("Password Changed", "Your password has been successfully updated.");
+      return true;
+    } catch (err: any) {
+      error("Password Update Failed", err.message || "Please check your current password.");
+      return false;
+    }
+  };
+
+  const resetPassword = async (identifier: string, newPass: string): Promise<boolean> => {
+    try {
+      await api.resetPassword(identifier, newPass);
+      success("Password Reset Successful", "You can now sign in with your new password.");
+      setAuthModalMode("signin");
+      return true;
+    } catch (err: any) {
+      error("Password Reset Failed", err.message || "No account found matching this identifier.");
+      return false;
+    }
+  };
+
+  const deleteAccount = async (): Promise<boolean> => {
+    if (!currentUser) return false;
+    try {
+      storage.deleteAccount(currentUser.id);
+      success("Account Deleted", "Your account and personal data have been removed.");
+      return true;
+    } catch (err: any) {
+      error("Account Deletion Failed", err.message);
+      return false;
     }
   };
 
@@ -96,7 +216,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     storage.setCurrentUser(userId);
     const target = storage.getUsers().find((u) => u.id === userId);
     if (target) {
-      roast(`Switched Persona`, `Now testing as @${target.username} (${target.roastPoints} pts)`);
+      roast(`Switched Persona`, `Now logged in as @${target.username} (${target.roastPoints} pts)`);
     }
   };
 
@@ -107,9 +227,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     const followed = storage.toggleFollow(targetUserId);
     if (followed) {
-      success("Followed!", "You will now see their latest stories.");
+      success("Followed!", "You will now see their stories in your Following feed.");
     } else {
-      success("Unfollowed", "You no longer follow this user.");
+      success("Unfollowed", "You have unfollowed this user.");
     }
     return followed;
   };
@@ -118,9 +238,59 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return storage.isFollowing(targetUserId);
   };
 
+  const sendFriendRequest = async (targetUserId: string): Promise<boolean> => {
+    if (!currentUser) {
+      openAuthModal("signin");
+      return false;
+    }
+    try {
+      storage.sendFriendRequest(targetUserId);
+      success("Friend Request Sent 🤝", "They will receive a notification to connect with you.");
+      return true;
+    } catch (err: any) {
+      error("Request Failed", err.message || "Could not send friend request");
+      return false;
+    }
+  };
+
+  const respondFriendRequest = (requestId: string, action: "accept" | "decline" | "cancel") => {
+    storage.respondFriendRequest(requestId, action);
+    if (action === "accept") {
+      roast("Connected! 🎉", "You are now friends! You can view each other's friend-only posts.");
+    } else if (action === "decline") {
+      success("Request Declined", "The friend request was declined.");
+    } else if (action === "cancel") {
+      success("Request Canceled", "Friend request was withdrawn.");
+    }
+  };
+
+  const unfriend = (targetUserId: string) => {
+    storage.unfriend(targetUserId);
+    success("Friend Removed", "User is no longer in your friends list.");
+  };
+
+  const isFriend = (targetUserId: string): boolean => {
+    return storage.isFriend(targetUserId);
+  };
+
+  const getFriends = (userId?: string): User[] => {
+    const targetId = userId || currentUser?.id;
+    if (!targetId) return [];
+    return storage.getFriends(targetId);
+  };
+
+  const getFriendRequests = () => {
+    if (!currentUser) return { received: [], sent: [] };
+    return storage.getFriendRequests(currentUser.id);
+  };
+
   const blockUser = (targetUserId: string) => {
     storage.blockUser(targetUserId);
-    success("User Blocked", "Their stories and roasts are now hidden.");
+    success("User Blocked", "Their stories, comments, and profile are now hidden from you.");
+  };
+
+  const isBlocked = (targetUserId: string): boolean => {
+    return storage.getBlockedUsers().includes(targetUserId);
   };
 
   return (
@@ -133,14 +303,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         signUp,
         signOut,
         updateProfile,
+        updatePrivacy,
+        changePassword,
+        resetPassword,
+        deleteAccount,
         switchDemoUser,
         toggleFollow,
         isFollowing,
+        sendFriendRequest,
+        respondFriendRequest,
+        unfriend,
+        isFriend,
+        getFriends,
+        getFriendRequests,
         blockUser,
+        isBlocked,
         openAuthModal,
         closeAuthModal,
         isAuthModalOpen,
         authModalMode,
+        isSettingsModalOpen,
+        openSettingsModal,
+        closeSettingsModal,
+        isConnectionsModalOpen,
+        openConnectionsModal,
+        closeConnectionsModal,
+        connectionsModalTab,
       }}
     >
       {children}
