@@ -151,7 +151,30 @@ export type NotificationType =
   | "friend_request_received"
   | "friend_request_accepted"
   | "achievement_unlocked"
-  | "top_roast_winner";
+  | "top_roast_winner"
+  | "new_message";
+
+export interface DirectMessage {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  senderUsername?: string;
+  senderDisplayName?: string;
+  senderAvatar?: string;
+  content: string;
+  read: boolean;
+  createdAt: string;
+}
+
+export interface Conversation {
+  id: string;
+  participantIds: string[];
+  participants: User[];
+  otherUser?: User;
+  lastMessage?: DirectMessage;
+  unreadCount?: number;
+  updatedAt: string;
+}
 
 export interface Notification {
   id: string;
@@ -186,9 +209,11 @@ export type TabType =
   | "create" 
   | "hall-of-fame" 
   | "notifications" 
+  | "messages"
   | "profile" 
   | "search" 
   | "connections";
+
 
 export type FeedSort = "for-you" | "following" | "trending" | "latest" | "most-roasted";
 

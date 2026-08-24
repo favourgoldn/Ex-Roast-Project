@@ -179,6 +179,27 @@ export interface Report {
   status: "pending" | "reviewed" | "resolved";
 }
 
+export interface DirectMessage {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  senderUsername?: string;
+  senderDisplayName?: string;
+  senderAvatar?: string;
+  content: string;
+  read: boolean;
+  createdAt: string;
+}
+
+export interface Conversation {
+  id: string;
+  participantIds: string[];
+  lastMessage?: DirectMessage;
+  unreadCount?: Record<string, number>;
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface DatabaseSchema {
   users: User[];
   passwords: Record<string, string>; // userId -> password string
@@ -191,6 +212,8 @@ interface DatabaseSchema {
   roastVotes: Record<string, Record<string, "up" | "down">>; // roastId -> { userId: "up" | "down" }
   commentLikes: Record<string, string[]>; // commentId -> array of userIds
   replyLikes: Record<string, string[]>; // replyId -> array of userIds
+  conversations: Conversation[];
+  messages: DirectMessage[];
   notifications: Notification[];
   blockedUsers: Record<string, string[]>; // userId -> array of blocked userIds
   reports: Report[];
@@ -548,53 +571,15 @@ let db: DatabaseSchema = {
     "user-4": ["user-1", "user-5"],
     "user-5": ["user-1", "user-2", "user-3"],
   },
-  posts: SEED_POSTS_INIT,
-  saves: {
-    "user-1": ["post-1", "post-2"],
-  },
-  postReactions: {
-    "post-1": { "user-1": "dead", "user-2": "savage" },
-    "post-2": { "user-1": "savage" },
-  },
-  roastVotes: {
-    "roast-101": { "user-1": "up" },
-  },
-  commentLikes: {
-    "comm-1": ["user-1", "user-2"],
-  },
-  replyLikes: {
-    "reply-1": ["user-5"],
-  },
-  notifications: [
-    {
-      id: "notif-1",
-      userId: "user-1",
-      actorId: "user-2",
-      actorUsername: "NoMercy",
-      actorDisplayName: "Marcus King",
-      actorAvatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&auto=format&fit=crop&q=80",
-      type: "roast_submitted",
-      title: "New Roast on your story! 🔥",
-      message: "dropped a savage roast on 'Told me they weren't ready...'",
-      targetPostId: "post-1",
-      targetRoastId: "roast-101",
-      createdAt: new Date(Date.now() - 3600 * 1000 * 2.5).toISOString(),
-      read: false,
-    },
-    {
-      id: "notif-2",
-      userId: "user-1",
-      actorId: "user-3",
-      actorUsername: "SavageSam",
-      actorDisplayName: "Samantha Reed",
-      actorAvatar: "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=200&auto=format&fit=crop&q=80",
-      type: "user_followed",
-      title: "New Follower",
-      message: "started following your ex roast stories.",
-      createdAt: new Date(Date.now() - 3600 * 1000 * 5).toISOString(),
-      read: true,
-    },
-  ],
+  posts: [], // Real production feed populated by real authenticated users
+  saves: {},
+  postReactions: {},
+  roastVotes: {},
+  commentLikes: {},
+  replyLikes: {},
+  conversations: [],
+  messages: [],
+  notifications: [],
   blockedUsers: {},
   reports: [],
 };
@@ -2062,6 +2047,188 @@ app.delete("/api/notifications/:id", (req, res) => {
 
   db.notifications = db.notifications.filter((n) => !(n.id === req.params.id && n.userId === requesterId));
   persistDB();
+  return res.json({ success: true });
+});
+
+// ----------------------------------------------------
+// CONVERSATIONS & DIRECT MESSAGING ROUTES
+// ----------------------------------------------------
+
+// GET /api/conversations
+app.get("/api/conversations", (req, res) => {
+  const requesterId = getUserIdFromRequest(req);
+  if (!requesterId) return res.status(401).json({ error: "Not authenticated" });
+
+  if (!Array.isArray(db.conversations)) db.conversations = [];
+  if (!Array.isArray(db.messages)) db.messages = [];
+
+  const userConvs = db.conversations.filter((c) => c.participantIds.includes(requesterId));
+
+  const result = userConvs.map((conv) => {
+    const otherId = conv.participantIds.find((id) => id !== requesterId) || requesterId;
+    const otherUser = getUserById(otherId);
+    const convMessages = db.messages.filter((m) => m.conversationId === conv.id);
+    const lastMsg = convMessages.length > 0 ? convMessages[convMessages.length - 1] : conv.lastMessage;
+    const unread = convMessages.filter((m) => m.senderId !== requesterId && !m.read).length;
+
+    return {
+      id: conv.id,
+      participantIds: conv.participantIds,
+      otherUser: otherUser ? {
+        id: otherUser.id,
+        username: otherUser.username,
+        displayName: otherUser.displayName,
+        avatarUrl: otherUser.avatarUrl,
+        isVerified: otherUser.isVerified,
+      } : null,
+      lastMessage: lastMsg,
+      unreadCount: unread,
+      updatedAt: conv.updatedAt || conv.createdAt,
+    };
+  }).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+
+  return res.json({ conversations: result });
+});
+
+// POST /api/conversations
+app.post("/api/conversations", (req, res) => {
+  const requesterId = getUserIdFromRequest(req);
+  if (!requesterId) return res.status(401).json({ error: "Not authenticated" });
+
+  const { targetUserId } = req.body;
+  if (!targetUserId) return res.status(400).json({ error: "targetUserId is required" });
+
+  const targetUser = getUserById(targetUserId);
+  if (!targetUser) return res.status(404).json({ error: "Target user not found" });
+
+  if (!Array.isArray(db.conversations)) db.conversations = [];
+
+  // Check if conversation already exists
+  let conv = db.conversations.find(
+    (c) => c.participantIds.includes(requesterId) && c.participantIds.includes(targetUserId)
+  );
+
+  if (!conv) {
+    conv = {
+      id: `conv-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      participantIds: [requesterId, targetUserId],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    db.conversations.push(conv);
+    persistDB();
+  }
+
+  return res.json({
+    conversation: {
+      ...conv,
+      otherUser: {
+        id: targetUser.id,
+        username: targetUser.username,
+        displayName: targetUser.displayName,
+        avatarUrl: targetUser.avatarUrl,
+        isVerified: targetUser.isVerified,
+      },
+    },
+  });
+});
+
+// GET /api/conversations/:id/messages
+app.get("/api/conversations/:id/messages", (req, res) => {
+  const requesterId = getUserIdFromRequest(req);
+  if (!requesterId) return res.status(401).json({ error: "Not authenticated" });
+
+  const conv = db.conversations.find((c) => c.id === req.params.id);
+  if (!conv || !conv.participantIds.includes(requesterId)) {
+    return res.status(403).json({ error: "Not a participant in this conversation" });
+  }
+
+  if (!Array.isArray(db.messages)) db.messages = [];
+  const messages = db.messages.filter((m) => m.conversationId === req.params.id);
+
+  return res.json({ messages });
+});
+
+// POST /api/conversations/:id/messages
+app.post("/api/conversations/:id/messages", (req, res) => {
+  const requesterId = getUserIdFromRequest(req);
+  if (!requesterId) return res.status(401).json({ error: "Not authenticated" });
+
+  const conv = db.conversations.find((c) => c.id === req.params.id);
+  if (!conv || !conv.participantIds.includes(requesterId)) {
+    return res.status(403).json({ error: "Not a participant in this conversation" });
+  }
+
+  const { content } = req.body;
+  if (!content || !content.trim()) {
+    return res.status(400).json({ error: "Message content cannot be empty" });
+  }
+
+  const sender = getUserById(requesterId);
+  const recipientId = conv.participantIds.find((id) => id !== requesterId);
+
+  const newMsg: DirectMessage = {
+    id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+    conversationId: conv.id,
+    senderId: requesterId,
+    senderUsername: sender?.username || "unknown",
+    senderDisplayName: sender?.displayName || "Ex Roast User",
+    senderAvatar: sender?.avatarUrl || "",
+    content: content.trim(),
+    read: false,
+    createdAt: new Date().toISOString(),
+  };
+
+  if (!Array.isArray(db.messages)) db.messages = [];
+  db.messages.push(newMsg);
+
+  conv.lastMessage = newMsg;
+  conv.updatedAt = newMsg.createdAt;
+
+  // Send notification to recipient
+  if (recipientId && sender) {
+    const notif: Notification = {
+      id: `notif-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      userId: recipientId,
+      actorId: sender.id,
+      actorUsername: sender.username,
+      actorDisplayName: sender.displayName,
+      actorAvatar: sender.avatarUrl,
+      type: "new_message",
+      title: `Message from @${sender.username}`,
+      message: content.length > 50 ? `${content.substring(0, 47)}...` : content,
+      createdAt: newMsg.createdAt,
+      read: false,
+    };
+    db.notifications.unshift(notif);
+  }
+
+  persistDB();
+
+  // Broadcast to realtime SSE
+  broadcastSSE("new_message", {
+    conversationId: conv.id,
+    message: newMsg,
+    recipientId,
+  });
+
+  return res.status(201).json({ message: newMsg });
+});
+
+// PUT /api/conversations/:id/read
+app.put("/api/conversations/:id/read", (req, res) => {
+  const requesterId = getUserIdFromRequest(req);
+  if (!requesterId) return res.status(401).json({ error: "Not authenticated" });
+
+  if (Array.isArray(db.messages)) {
+    db.messages.forEach((m) => {
+      if (m.conversationId === req.params.id && m.senderId !== requesterId) {
+        m.read = true;
+      }
+    });
+    persistDB();
+  }
+
   return res.json({ success: true });
 });
 

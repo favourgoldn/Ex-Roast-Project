@@ -7,6 +7,7 @@ import { MobileNav } from "./components/common/MobileNav";
 import { AuthModal } from "./components/common/AuthModal";
 import { SettingsModal } from "./components/common/SettingsModal";
 import { ConnectionsModal } from "./components/common/ConnectionsModal";
+import { MessagesModal } from "./components/messaging/MessagesModal";
 import { ReportModal } from "./components/common/ReportModal";
 import { GuidelinesModal } from "./components/common/GuidelinesModal";
 import { ShareModal } from "./components/common/ShareModal";
@@ -21,7 +22,14 @@ import { TabType, Post } from "./types";
 import { storage } from "./services/storageService";
 
 function MainApp() {
-  const { currentUser, openAuthModal, allUsers } = useAuth();
+  const { 
+    currentUser, 
+    openAuthModal, 
+    allUsers,
+    isMessagesModalOpen,
+    closeMessagesModal,
+    messagesModalTargetUser
+  } = useAuth();
   const [currentTab, setCurrentTab] = useState<TabType>("home");
   const [viewingUserId, setViewingUserId] = useState<string | undefined>(undefined);
 
@@ -196,6 +204,12 @@ function MainApp() {
       <AuthModal />
       <SettingsModal />
       <ConnectionsModal onNavigateToProfile={handleNavigateToProfile} />
+      <MessagesModal
+        isOpen={isMessagesModalOpen}
+        onClose={closeMessagesModal}
+        initialTargetUser={messagesModalTargetUser}
+        onNavigateToProfile={handleNavigateToProfile}
+      />
 
       <ReportModal
         isOpen={reportData.isOpen}

@@ -51,6 +51,12 @@ interface AuthContextValue {
   openConnectionsModal: (initialTab?: "friends" | "requests" | "following" | "discover") => void;
   closeConnectionsModal: () => void;
   connectionsModalTab: "friends" | "requests" | "following" | "discover";
+
+  isMessagesModalOpen: boolean;
+  messagesModalTargetUser: User | null;
+  openMessagesModal: () => void;
+  openMessagesWithUser: (targetUser: User) => void;
+  closeMessagesModal: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -65,6 +71,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isConnectionsModalOpen, setIsConnectionsModalOpen] = useState(false);
   const [connectionsModalTab, setConnectionsModalTab] = useState<"friends" | "requests" | "following" | "discover">("friends");
+
+  const [isMessagesModalOpen, setIsMessagesModalOpen] = useState(false);
+  const [messagesModalTargetUser, setMessagesModalTargetUser] = useState<User | null>(null);
 
   const { success, error, roast } = useToast();
 
@@ -97,6 +106,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const closeSettingsModal = useCallback(() => {
     setIsSettingsModalOpen(false);
+  }, []);
+
+  const openMessagesModal = useCallback(() => {
+    if (!currentUser) {
+      openAuthModal("signin");
+      return;
+    }
+    setMessagesModalTargetUser(null);
+    setIsMessagesModalOpen(true);
+  }, [currentUser, openAuthModal]);
+
+  const openMessagesWithUser = useCallback((targetUser: User) => {
+    if (!currentUser) {
+      openAuthModal("signin");
+      return;
+    }
+    setMessagesModalTargetUser(targetUser);
+    setIsMessagesModalOpen(true);
+  }, [currentUser, openAuthModal]);
+
+  const closeMessagesModal = useCallback(() => {
+    setIsMessagesModalOpen(false);
+    setMessagesModalTargetUser(null);
   }, []);
 
   const openConnectionsModal = useCallback((tab: "friends" | "requests" | "following" | "discover" = "friends") => {
@@ -329,6 +361,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         openConnectionsModal,
         closeConnectionsModal,
         connectionsModalTab,
+        isMessagesModalOpen,
+        messagesModalTargetUser,
+        openMessagesModal,
+        openMessagesWithUser,
+        closeMessagesModal,
       }}
     >
       {children}

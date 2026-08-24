@@ -14,7 +14,8 @@ import {
   TrendingUp,
   Users,
   Settings,
-  Bookmark
+  Bookmark,
+  MessageSquare
 } from "lucide-react";
 
 interface SidebarProps {
@@ -34,6 +35,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     currentUser, 
     openAuthModal, 
     openConnectionsModal, 
+    openMessagesModal,
     openSettingsModal,
     getFriendRequests 
   } = useAuth();
@@ -104,6 +106,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* Direct Social Links */}
           {currentUser && (
             <>
+              <button
+                id="sidebar-nav-messages"
+                onClick={openMessagesModal}
+                className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl font-semibold text-sm text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/30 transition-all group"
+              >
+                <div className="flex items-center gap-3">
+                  <MessageSquare className="w-4 h-4 text-zinc-400 group-hover:text-red-400 transition-colors" />
+                  <span>Direct Messages</span>
+                </div>
+                <span className="px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider bg-red-500/20 text-red-400 rounded-md">
+                  LIVE
+                </span>
+              </button>
+
               <button
                 id="sidebar-nav-friends"
                 onClick={() => openConnectionsModal("friends")}

@@ -56,40 +56,24 @@ class StorageService {
       }));
       localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(initializedUsers));
     }
-    if (!localStorage.getItem(STORAGE_KEYS.CURRENT_USER_ID)) {
-      localStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, SEED_USERS[0].id);
-    }
+    // Clean production feed: real posts only
     if (!localStorage.getItem(STORAGE_KEYS.POSTS)) {
-      localStorage.setItem(STORAGE_KEYS.POSTS, JSON.stringify(SEED_POSTS));
+      localStorage.setItem(STORAGE_KEYS.POSTS, JSON.stringify([]));
     }
     if (!localStorage.getItem(STORAGE_KEYS.NOTIFICATIONS)) {
-      localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(SEED_NOTIFICATIONS));
+      localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify([]));
     }
     if (!localStorage.getItem(STORAGE_KEYS.FOLLOWS)) {
-      localStorage.setItem(STORAGE_KEYS.FOLLOWS, JSON.stringify({
-        "user-1": ["user-2", "user-3", "user-4", "user-5"],
-        "user-2": ["user-1", "user-3", "user-5"],
-        "user-3": ["user-1", "user-2"],
-        "user-4": ["user-1", "user-5"],
-        "user-5": ["user-1", "user-2", "user-3"],
-      }));
+      localStorage.setItem(STORAGE_KEYS.FOLLOWS, JSON.stringify({}));
     }
     if (!localStorage.getItem(STORAGE_KEYS.FRIENDS)) {
-      localStorage.setItem(STORAGE_KEYS.FRIENDS, JSON.stringify({
-        "user-1": ["user-2", "user-3", "user-5"],
-        "user-2": ["user-1", "user-3"],
-        "user-3": ["user-1", "user-2"],
-        "user-4": ["user-5"],
-        "user-5": ["user-1", "user-4"],
-      }));
+      localStorage.setItem(STORAGE_KEYS.FRIENDS, JSON.stringify({}));
     }
     if (!localStorage.getItem(STORAGE_KEYS.FRIEND_REQUESTS)) {
       localStorage.setItem(STORAGE_KEYS.FRIEND_REQUESTS, JSON.stringify([]));
     }
     if (!localStorage.getItem(STORAGE_KEYS.SAVED_POST_IDS)) {
-      localStorage.setItem(STORAGE_KEYS.SAVED_POST_IDS, JSON.stringify({
-        "user-1": ["post-1", "post-2"],
-      }));
+      localStorage.setItem(STORAGE_KEYS.SAVED_POST_IDS, JSON.stringify({}));
     }
     if (!localStorage.getItem(STORAGE_KEYS.BLOCKED_USERS)) {
       localStorage.setItem(STORAGE_KEYS.BLOCKED_USERS, JSON.stringify([]));
@@ -180,7 +164,7 @@ class StorageService {
     const currentId = localStorage.getItem(STORAGE_KEYS.CURRENT_USER_ID);
     if (!currentId) return null;
     const users = this.getUsers();
-    return users.find((u) => u.id === currentId) || users[0] || null;
+    return users.find((u) => u.id === currentId) || null;
   }
 
   public setCurrentUser(userId: string): void {
@@ -366,7 +350,7 @@ class StorageService {
   public getPosts(): Post[] {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.POSTS);
-      const posts: Post[] = data ? JSON.parse(data) : SEED_POSTS;
+      const posts: Post[] = data ? JSON.parse(data) : [];
       
       const current = this.getCurrentUser();
       const savedMap = this.getSavedPostIdsMap();
@@ -380,7 +364,7 @@ class StorageService {
           userSaved: savedForUser.includes(p.id),
         }));
     } catch {
-      return SEED_POSTS;
+      return [];
     }
   }
 
@@ -1142,6 +1126,56 @@ class StorageService {
         createdAt: new Date().toISOString(),
         status: "pending",
       };
+    }
+  }
+
+  // --- CONVERSATIONS & DIRECT MESSAGING ---
+
+  public async getConversations(): Promise<any[]> {
+    try {
+      const res = await api.getConversations();
+      return res.conversations || [];
+    } catch {
+      return [];
+    }
+  }
+
+  public async getOrCreateConversation(targetUserId: string): Promise<any> {
+    try {
+      const res = await api.getOrCreateConversation(targetUserId);
+      return res.conversation;
+    } catch (err) {
+      console.error("Error creating conversation:", err);
+      throw err;
+    }
+  }
+
+  public async getMessages(conversationId: string): Promise<any[]> {
+    try {
+      const res = await api.getMessages(conversationId);
+      return res.messages || [];
+    } catch {
+      return [];
+    }
+  }
+
+  public async sendMessage(conversationId: string, content: string): Promise<any> {
+    try {
+      const res = await api.sendMessage(conversationId, content);
+      this.notify();
+      return res.message;
+    } catch (err) {
+      console.error("Error sending message:", err);
+      throw err;
+    }
+  }
+
+  public async markConversationRead(conversationId: string): Promise<void> {
+    try {
+      await api.markConversationRead(conversationId);
+      this.notify();
+    } catch {
+      // ignore
     }
   }
 

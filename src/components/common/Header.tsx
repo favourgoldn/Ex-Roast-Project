@@ -15,7 +15,8 @@ import {
   Check, 
   ChevronDown,
   Settings,
-  UserPlus
+  UserPlus,
+  MessageSquare
 } from "lucide-react";
 
 interface HeaderProps {
@@ -41,6 +42,7 @@ export const Header: React.FC<HeaderProps> = ({
     openAuthModal, 
     openSettingsModal, 
     openConnectionsModal,
+    openMessagesModal,
     getFriendRequests 
   } = useAuth();
 
@@ -254,6 +256,16 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="text-[10px] text-red-400 font-normal uppercase">PTS</span>
             </div>
           )}
+
+          {/* Direct Messages Button */}
+          <button
+            id="header-messages-btn"
+            onClick={openMessagesModal}
+            className="relative p-2 rounded-xl border bg-[#121218] text-zinc-400 hover:text-zinc-200 border-zinc-800 hover:border-zinc-700 transition-all"
+            title="Direct Messages"
+          >
+            <MessageSquare className="w-4 h-4" />
+          </button>
 
           {/* Notifications Button */}
           <button

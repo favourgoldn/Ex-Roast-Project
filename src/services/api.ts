@@ -84,6 +84,7 @@ class ApiService {
         "friend_request",
         "friend_accepted",
         "notification",
+        "new_message",
         "user_registered",
         "user_updated",
       ];
@@ -410,6 +411,35 @@ class ApiService {
   // --- Leaderboard & Hall of Fame ---
   public async getLeaderboard(): Promise<LeaderboardResponse> {
     return this.request<LeaderboardResponse>("/api/leaderboard");
+  }
+
+  // --- Conversations & Messaging APIs ---
+  public async getConversations(): Promise<{ conversations: any[] }> {
+    return this.request<{ conversations: any[] }>("/api/conversations");
+  }
+
+  public async getOrCreateConversation(targetUserId: string): Promise<{ conversation: any }> {
+    return this.request<{ conversation: any }>("/api/conversations", {
+      method: "POST",
+      body: JSON.stringify({ targetUserId }),
+    });
+  }
+
+  public async getMessages(conversationId: string): Promise<{ messages: any[] }> {
+    return this.request<{ messages: any[] }>(`/api/conversations/${conversationId}/messages`);
+  }
+
+  public async sendMessage(conversationId: string, content: string): Promise<{ message: any }> {
+    return this.request<{ message: any }>(`/api/conversations/${conversationId}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ content }),
+    });
+  }
+
+  public async markConversationRead(conversationId: string): Promise<{ success: boolean }> {
+    return this.request<{ success: boolean }>(`/api/conversations/${conversationId}/read`, {
+      method: "PUT",
+    });
   }
 
   // --- Reports & Moderation ---

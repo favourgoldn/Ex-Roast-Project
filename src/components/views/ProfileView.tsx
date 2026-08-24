@@ -20,7 +20,8 @@ import {
   Settings,
   ShieldAlert,
   UserX,
-  Lock
+  Lock,
+  MessageSquare
 } from "lucide-react";
 
 interface ProfileViewProps {
@@ -52,7 +53,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     blockUser,
     isBlocked,
     getFriends,
-    getFriendRequests
+    getFriendRequests,
+    openMessagesWithUser
   } = useAuth();
   
   const { success, roast } = useToast();
@@ -224,6 +226,17 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                       <span>Add Friend</span>
                     </button>
                   )}
+
+                  {/* Direct Message Button */}
+                  <button
+                    id={`profile-message-btn-${targetUser.id}`}
+                    onClick={() => openMessagesWithUser(targetUser)}
+                    className="px-3.5 py-2 bg-[#1b1b28] hover:bg-[#232336] border border-zinc-700 text-zinc-200 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-colors"
+                    title="Send Direct Message"
+                  >
+                    <MessageSquare className="w-3.5 h-3.5 text-red-400" />
+                    <span>Message</span>
+                  </button>
 
                   {/* Follow Button */}
                   <button
