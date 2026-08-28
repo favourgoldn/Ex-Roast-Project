@@ -28,11 +28,11 @@ export const ReportModal: React.FC<ReportModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUser) return;
 
-    storage.createReport({
+    await storage.createReport({
       reporterId: currentUser.id,
       targetType,
       targetId,

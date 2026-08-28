@@ -125,6 +125,7 @@ export interface Roast {
   createdAt: string;
   isTopRoast?: boolean;
   isRoastOfTheDay?: boolean;
+  userVote?: "up" | "down" | null;
 }
 
 export interface Post {
@@ -571,7 +572,7 @@ let db: DatabaseSchema = {
     "user-4": ["user-1", "user-5"],
     "user-5": ["user-1", "user-2", "user-3"],
   },
-  posts: [], // Real production feed populated by real authenticated users
+  posts: SEED_POSTS_INIT,
   saves: {},
   postReactions: {},
   roastVotes: {},
@@ -594,8 +595,14 @@ try {
         ...db,
         ...parsed,
       };
+      if (!Array.isArray(db.posts) || db.posts.length === 0) {
+        db.posts = SEED_POSTS_INIT;
+      }
       console.log(`[EX ROAST DB] Loaded ${db.users.length} users and ${db.posts.length} posts from disk.`);
     }
+  } else {
+    // DB doesn't exist yet, save initial seed state to disk
+    persistDB();
   }
 } catch (err) {
   console.error("[EX ROAST DB] Error reading DB file:", err);
@@ -1482,7 +1489,7 @@ app.post("/api/posts", (req, res) => {
   const author = getUserById(requesterId);
   if (!author) return res.status(404).json({ error: "User not found" });
 
-  const { title, content, category, imageUrl, hashtags = [], isAnonymous = false, anonymousAlias } = req.body;
+  const { title, content, category, imageUrl, hashtags = [], isAnonymous = false, anonymousAlias, firstRoastContent } = req.body;
 
   if (!title || !content || !category) {
     return res.status(400).json({ error: "Title, content, and category are required" });
@@ -1513,12 +1520,38 @@ app.post("/api/posts", (req, res) => {
     isSeed: false,
   };
 
+  if (firstRoastContent && typeof firstRoastContent === "string" && firstRoastContent.trim()) {
+    const firstRoast: Roast = {
+      id: `roast-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
+      postId: newPost.id,
+      authorId: requesterId,
+      authorUsername: author.username,
+      authorDisplayName: author.displayName,
+      authorAvatar: author.avatarUrl,
+      content: firstRoastContent.trim(),
+      score: 1,
+      upvotes: 1,
+      downvotes: 0,
+      createdAt: new Date().toISOString(),
+      userVote: "up",
+    };
+    newPost.roasts = [firstRoast];
+    newPost.roastsCount = 1;
+    if (!db.roastVotes[firstRoast.id]) db.roastVotes[firstRoast.id] = {};
+    db.roastVotes[firstRoast.id][requesterId] = "up";
+    author.roastsCount = (author.roastsCount || 0) + 1;
+    author.roastPoints = (author.roastPoints || 0) + 20;
+  }
+
   db.posts.unshift(newPost);
   author.postsCount = (author.postsCount || 0) + 1;
   author.roastPoints = (author.roastPoints || 0) + 50; // +50 pts for posting story!
 
   persistDB();
   broadcastSSE("post_created", { post: newPost });
+  if (newPost.roasts.length > 0) {
+    broadcastSSE("roast_created", { postId: newPost.id, roast: newPost.roasts[0] });
+  }
 
   return res.status(201).json({ post: newPost });
 });
@@ -1813,6 +1846,7 @@ app.post("/api/roasts/:id/vote", (req, res) => {
   targetPost.flameScore = calculateFlameScore(targetPost.reactions, targetPost.roastsCount, targetPost.commentsCount, targetPost.savesCount);
 
   persistDB();
+  broadcastSSE("roast_voted", { roastId, score: targetRoast.score, upvotes: targetRoast.upvotes, downvotes: targetRoast.downvotes });
 
   return res.json({
     score: targetRoast.score,
@@ -1837,6 +1871,7 @@ app.delete("/api/roasts/:id", (req, res) => {
       post.roasts.splice(idx, 1);
       post.roastsCount = post.roasts.length;
       persistDB();
+      broadcastSSE("roast_deleted", { postId: post.id, roastId });
       return res.json({ success: true, message: "Roast deleted" });
     }
   }
@@ -1967,6 +2002,7 @@ app.post("/api/comments/:id/reply", (req, res) => {
   }
 
   persistDB();
+  broadcastSSE("reply_created", { postId: targetPost.id, commentId: targetComment.id, reply: newReply });
   return res.status(201).json({ reply: { ...newReply, userLiked: false } });
 });
 

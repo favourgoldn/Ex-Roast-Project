@@ -14,16 +14,16 @@ interface RoastCardProps {
 
 export const RoastCard: React.FC<RoastCardProps> = ({ roast, postId, onReport }) => {
   const { currentUser, openAuthModal } = useAuth();
-  const { roast: toastRoast, success } = useToast();
+  const { roast: toastRoast, success, error } = useToast();
 
-  const handleVote = (direction: "up" | "down") => {
+  const handleVote = async (direction: "up" | "down") => {
     if (!currentUser) {
       openAuthModal("signin");
       return;
     }
 
     try {
-      const updated = storage.voteRoast(postId, roast.id, direction);
+      const updated = await storage.voteRoast(postId, roast.id, direction);
       if (direction === "up" && updated.userVote === "up") {
         toastRoast("Flame Point Dropped! 🔥", "+10 Roast Points awarded to author");
         if (updated.score >= 10 && updated.score % 5 === 0) {
@@ -36,14 +36,18 @@ export const RoastCard: React.FC<RoastCardProps> = ({ roast, postId, onReport })
         }
       }
     } catch (err: any) {
-      console.error(err);
+      error("Vote Failed", err.message || "Failed to submit vote");
     }
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (window.confirm("Are you sure you want to delete this roast?")) {
-      storage.deleteRoast(postId, roast.id);
-      success("Roast Deleted", "Your roast has been removed.");
+      try {
+        await storage.deleteRoast(postId, roast.id);
+        success("Roast Deleted", "Your roast has been removed.");
+      } catch (err: any) {
+        error("Delete Failed", err.message || "Failed to delete roast");
+      }
     }
   };
 

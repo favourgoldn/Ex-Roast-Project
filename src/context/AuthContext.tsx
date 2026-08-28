@@ -26,15 +26,15 @@ interface AuthContextValue {
   switchDemoUser: (userId: string) => void;
   
   // Social relationships
-  toggleFollow: (targetUserId: string) => boolean;
+  toggleFollow: (targetUserId: string) => Promise<boolean>;
   isFollowing: (targetUserId: string) => boolean;
   sendFriendRequest: (targetUserId: string) => Promise<boolean>;
-  respondFriendRequest: (requestId: string, action: "accept" | "decline" | "cancel") => void;
-  unfriend: (targetUserId: string) => void;
+  respondFriendRequest: (requestId: string, action: "accept" | "decline" | "cancel") => Promise<void>;
+  unfriend: (targetUserId: string) => Promise<void>;
   isFriend: (targetUserId: string) => boolean;
   getFriends: (userId?: string) => User[];
   getFriendRequests: () => { received: FriendRequest[]; sent: FriendRequest[] };
-  blockUser: (targetUserId: string) => void;
+  blockUser: (targetUserId: string) => Promise<void>;
   isBlocked: (targetUserId: string) => boolean;
 
   // Modal controls
@@ -146,7 +146,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signIn = async (identifier: string, password = "password123"): Promise<boolean> => {
     try {
-      const user = storage.signIn(identifier, password);
+      const user = await storage.signIn(identifier, password);
       setCurrentUser(user);
       setIsAuthModalOpen(false);
       success("Welcome back!", `Signed in as @${user.username}`);
@@ -166,7 +166,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     password = "password123"
   ): Promise<boolean> => {
     try {
-      const user = storage.signUp(username, email, displayName, avatarUrl, bio, password);
+      const user = await storage.signUp(username, email, displayName, avatarUrl, bio, password);
       setCurrentUser(user);
       setIsAuthModalOpen(false);
       roast("Account Created! 🔥", `Welcome @${user.username}. +100 Welcome Roast Points awarded!`);
@@ -186,7 +186,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const updateProfile = async (updates: Partial<User>): Promise<boolean> => {
     if (!currentUser) return false;
     try {
-      const updated = storage.updateUser(currentUser.id, updates);
+      const updated = await storage.updateUser(currentUser.id, updates);
       setCurrentUser(updated);
       success("Profile Updated", "Your profile details have been saved.");
       return true;
@@ -199,7 +199,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const updatePrivacy = async (privacyUpdates: Partial<PrivacySettings>): Promise<boolean> => {
     if (!currentUser) return false;
     try {
-      storage.updatePrivacy(currentUser.id, privacyUpdates);
+      await storage.updatePrivacy(currentUser.id, privacyUpdates);
       success("Privacy Settings Saved", "Your privacy preferences have been updated.");
       return true;
     } catch (err: any) {
@@ -235,7 +235,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const deleteAccount = async (): Promise<boolean> => {
     if (!currentUser) return false;
     try {
-      storage.deleteAccount(currentUser.id);
+      await storage.deleteAccount(currentUser.id);
       success("Account Deleted", "Your account and personal data have been removed.");
       return true;
     } catch (err: any) {
@@ -252,18 +252,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const toggleFollow = (targetUserId: string): boolean => {
+  const toggleFollow = async (targetUserId: string): Promise<boolean> => {
     if (!currentUser) {
       openAuthModal("signin");
       return false;
     }
-    const followed = storage.toggleFollow(targetUserId);
-    if (followed) {
-      success("Followed!", "You will now see their stories in your Following feed.");
-    } else {
-      success("Unfollowed", "You have unfollowed this user.");
+    try {
+      const followed = await storage.toggleFollow(targetUserId);
+      if (followed) {
+        success("Followed!", "You will now see their stories in your Following feed.");
+      } else {
+        success("Unfollowed", "You have unfollowed this user.");
+      }
+      return followed;
+    } catch (err: any) {
+      error("Follow Failed", err.message || "Could not follow user");
+      return false;
     }
-    return followed;
   };
 
   const isFollowing = (targetUserId: string): boolean => {
@@ -276,7 +281,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return false;
     }
     try {
-      storage.sendFriendRequest(targetUserId);
+      await storage.sendFriendRequest(targetUserId);
       success("Friend Request Sent 🤝", "They will receive a notification to connect with you.");
       return true;
     } catch (err: any) {
@@ -285,20 +290,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const respondFriendRequest = (requestId: string, action: "accept" | "decline" | "cancel") => {
-    storage.respondFriendRequest(requestId, action);
-    if (action === "accept") {
-      roast("Connected! 🎉", "You are now friends! You can view each other's friend-only posts.");
-    } else if (action === "decline") {
-      success("Request Declined", "The friend request was declined.");
-    } else if (action === "cancel") {
-      success("Request Canceled", "Friend request was withdrawn.");
+  const respondFriendRequest = async (requestId: string, action: "accept" | "decline" | "cancel") => {
+    try {
+      await storage.respondFriendRequest(requestId, action);
+      if (action === "accept") {
+        roast("Connected! 🎉", "You are now friends! You can view each other's friend-only posts.");
+      } else if (action === "decline") {
+        success("Request Declined", "The friend request was declined.");
+      } else if (action === "cancel") {
+        success("Request Canceled", "Friend request was withdrawn.");
+      }
+    } catch (err: any) {
+      error("Action Failed", err.message || "Could not process request");
     }
   };
 
-  const unfriend = (targetUserId: string) => {
-    storage.unfriend(targetUserId);
-    success("Friend Removed", "User is no longer in your friends list.");
+  const unfriend = async (targetUserId: string) => {
+    try {
+      await storage.unfriend(targetUserId);
+      success("Friend Removed", "User is no longer in your friends list.");
+    } catch (err: any) {
+      error("Unfriend Failed", err.message || "Could not remove friend");
+    }
   };
 
   const isFriend = (targetUserId: string): boolean => {
@@ -316,9 +329,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return storage.getFriendRequests(currentUser.id);
   };
 
-  const blockUser = (targetUserId: string) => {
-    storage.blockUser(targetUserId);
-    success("User Blocked", "Their stories, comments, and profile are now hidden from you.");
+  const blockUser = async (targetUserId: string) => {
+    try {
+      await storage.blockUser(targetUserId);
+      success("User Blocked", "Their stories, comments, and profile are now hidden from you.");
+    } catch (err: any) {
+      error("Block Failed", err.message || "Could not block user");
+    }
   };
 
   const isBlocked = (targetUserId: string): boolean => {

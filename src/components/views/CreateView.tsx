@@ -37,6 +37,7 @@ export const CreateView: React.FC<CreateViewProps> = ({ onTabChange, onStoryCrea
   const [imageUrl, setImageUrl] = useState("");
   const [tagsInput, setTagsInput] = useState("ex, redflag, comedy");
   const [isScanning, setIsScanning] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
   const [aiSuggestions, setAiSuggestions] = useState<string[]>([]);
   const [firstRoast, setFirstRoast] = useState("");
@@ -150,8 +151,9 @@ export const CreateView: React.FC<CreateViewProps> = ({ onTabChange, onStoryCrea
       .map((t) => t.trim().replace(/^#/, ""))
       .filter((t) => t.length > 0);
 
+    setIsSubmitting(true);
     try {
-      const newPost = storage.createPost({
+      const newPost = await storage.createPost({
         authorId: currentUser.id,
         authorUsername: currentUser.username,
         authorDisplayName: currentUser.displayName,
@@ -177,7 +179,9 @@ export const CreateView: React.FC<CreateViewProps> = ({ onTabChange, onStoryCrea
       onStoryCreated(newPost.id);
       onTabChange("explore");
     } catch (err: any) {
-      error("Could not create post", err.message);
+      error("Could not create post", err.message || "Failed to publish story to backend");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -469,11 +473,11 @@ export const CreateView: React.FC<CreateViewProps> = ({ onTabChange, onStoryCrea
           <button
             id="create-submit-story-btn"
             type="submit"
-            disabled={isScanning}
-            className="px-6 py-3 bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 hover:opacity-95 text-white font-extrabold text-xs rounded-xl shadow-xl shadow-red-950/60 transition-all flex items-center gap-2 transform active:scale-95"
+            disabled={isScanning || isSubmitting}
+            className="px-6 py-3 bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 hover:opacity-95 text-white font-extrabold text-xs rounded-xl shadow-xl shadow-red-950/60 transition-all flex items-center gap-2 transform active:scale-95 disabled:opacity-50"
           >
             <Send className="w-4 h-4" />
-            <span>{isScanning ? "Scanning Safety..." : "POST STORY & ROAST"}</span>
+            <span>{isSubmitting ? "Publishing Story..." : isScanning ? "Scanning Safety..." : "POST STORY & ROAST"}</span>
           </button>
         </div>
       </form>

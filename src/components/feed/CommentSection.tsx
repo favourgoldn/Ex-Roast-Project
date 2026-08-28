@@ -12,12 +12,12 @@ interface CommentSectionProps {
 
 export const CommentSection: React.FC<CommentSectionProps> = ({ postId, comments }) => {
   const { currentUser, openAuthModal } = useAuth();
-  const { success } = useToast();
+  const { success, error } = useToast();
   const [commentText, setCommentText] = useState("");
   const [replyTextMap, setReplyTextMap] = useState<Record<string, string>>({});
   const [activeReplyId, setActiveReplyId] = useState<string | null>(null);
 
-  const handleAddComment = (e: React.FormEvent) => {
+  const handleAddComment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUser) {
       openAuthModal("signin");
@@ -25,12 +25,16 @@ export const CommentSection: React.FC<CommentSectionProps> = ({ postId, comments
     }
     if (!commentText.trim()) return;
 
-    storage.addComment(postId, commentText);
-    setCommentText("");
-    success("Comment Posted", "Your response has been added to the story.");
+    try {
+      await storage.addComment(postId, commentText);
+      setCommentText("");
+      success("Comment Posted", "Your response has been added to the story.");
+    } catch (err: any) {
+      error("Comment Failed", err.message || "Failed to post comment");
+    }
   };
 
-  const handleAddReply = (commentId: string) => {
+  const handleAddReply = async (commentId: string) => {
     if (!currentUser) {
       openAuthModal("signin");
       return;
@@ -38,10 +42,14 @@ export const CommentSection: React.FC<CommentSectionProps> = ({ postId, comments
     const text = replyTextMap[commentId];
     if (!text || !text.trim()) return;
 
-    storage.addReply(postId, commentId, text);
-    setReplyTextMap((prev) => ({ ...prev, [commentId]: "" }));
-    setActiveReplyId(null);
-    success("Reply Posted", "Your reply was posted.");
+    try {
+      await storage.addReply(postId, commentId, text);
+      setReplyTextMap((prev) => ({ ...prev, [commentId]: "" }));
+      setActiveReplyId(null);
+      success("Reply Posted", "Your reply was posted.");
+    } catch (err: any) {
+      error("Reply Failed", err.message || "Failed to post reply");
+    }
   };
 
   return (

@@ -80,7 +80,10 @@ class ApiService {
         "post_updated",
         "post_deleted",
         "roast_created",
+        "roast_voted",
+        "roast_deleted",
         "comment_created",
+        "reply_created",
         "friend_request",
         "friend_accepted",
         "notification",
@@ -298,6 +301,7 @@ class ApiService {
     hashtags?: string[];
     isAnonymous?: boolean;
     anonymousAlias?: string;
+    firstRoastContent?: string;
   }): Promise<{ post: Post }> {
     return this.request<{ post: Post }>("/api/posts", {
       method: "POST",

@@ -62,30 +62,38 @@ export const PostCard: React.FC<PostCardProps> = ({
   };
 
   // Reactions
-  const handleReaction = (type: ReactionType) => {
+  const handleReaction = async (type: ReactionType) => {
     if (!currentUser) {
       openAuthModal("signin");
       return;
     }
-    storage.toggleReaction(post.id, type);
+    try {
+      await storage.toggleReaction(post.id, type);
+    } catch (err: any) {
+      error("Reaction Failed", err.message || "Could not save reaction");
+    }
   };
 
   // Toggle Save
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!currentUser) {
       openAuthModal("signin");
       return;
     }
-    const saved = storage.toggleSavePost(post.id);
-    if (saved) {
-      success("Saved to Favorites", "You can find this in your Profile > Saved tab.");
-    } else {
-      success("Removed from Saved", "Story removed from your saved list.");
+    try {
+      const saved = await storage.toggleSavePost(post.id);
+      if (saved) {
+        success("Saved to Favorites", "You can find this in your Profile > Saved tab.");
+      } else {
+        success("Removed from Saved", "Story removed from your saved list.");
+      }
+    } catch (err: any) {
+      error("Action Failed", err.message || "Could not update saved status");
     }
   };
 
   // Drop a Roast
-  const handleDropRoast = (e: React.FormEvent) => {
+  const handleDropRoast = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUser) {
       openAuthModal("signin");
@@ -99,7 +107,7 @@ export const PostCard: React.FC<PostCardProps> = ({
     }
 
     try {
-      storage.addRoast(post.id, roastInput);
+      await storage.addRoast(post.id, roastInput);
       setRoastInput("");
       setAiSuggestions([]);
       setShowRoasts(true);
@@ -112,7 +120,7 @@ export const PostCard: React.FC<PostCardProps> = ({
         colors: ["#ef233c", "#ff9f1c", "#ffffff"],
       });
     } catch (err: any) {
-      error("Failed to drop roast", err.message);
+      error("Failed to drop roast", err.message || "Server error dropping roast");
     }
   };
 
@@ -131,10 +139,14 @@ export const PostCard: React.FC<PostCardProps> = ({
   };
 
   // Delete own post
-  const handleDeletePost = () => {
+  const handleDeletePost = async () => {
     if (window.confirm("Are you sure you want to delete this story?")) {
-      storage.deletePost(post.id);
-      success("Story Deleted", "Your story has been permanently removed.");
+      try {
+        await storage.deletePost(post.id);
+        success("Story Deleted", "Your story has been permanently removed.");
+      } catch (err: any) {
+        error("Failed to delete story", err.message || "Server error deleting story");
+      }
     }
   };
 

@@ -42,7 +42,7 @@ export const AuthModal: React.FC = () => {
       return;
     }
     setLoading(true);
-    const success = await signIn(identifier);
+    const success = await signIn(identifier, password);
     setLoading(false);
     if (!success) {
       setErrorMsg("Invalid credentials. You can also pick a demo persona below!");
@@ -68,7 +68,7 @@ export const AuthModal: React.FC = () => {
 
     setLoading(true);
     const selectedAvatar = AVATAR_PRESETS[avatarIndex];
-    const success = await signUp(username, email, displayName || username, selectedAvatar);
+    const success = await signUp(username, email, displayName || username, selectedAvatar, undefined, signupPassword);
     setLoading(false);
     if (!success) {
       setErrorMsg("Failed to register. Username or email might already be taken.");
